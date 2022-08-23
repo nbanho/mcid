@@ -1,0 +1,86 @@
+---
+title: "Palas"
+author: "NB"
+date: "2022-08-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(reshape2)
+library(lubridate)
+```
+
+## Data
+
+```{r}
+df <- read_csv("../data-clean/palas.csv")
+df_class <- filter(df, !no_class)  
+```
+
+
+## Descriptives
+
+### CO2
+
+```{r}
+df_class %>%
+  ggplot(aes(x = intervention, y = co2ppm, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+### Humidity 
+
+```{r}
+df_class %>%
+  ggplot(aes(x = intervention, y = rh, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+
+### Aerosol conentration
+
+```{r}
+df_class %>%
+  ggplot(aes(x = intervention, y = cn1cm, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+
+### Particle matter concentration
+
+```{r}
+df_class %>%
+  ggplot(aes(x = intervention, y = pmtotmugm, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+
+```{r}
+df_class %>%
+  select(location, intervention, pm1mugm, pm25mugm, pm4mugm, pm10mugm) %>%
+  melt(c("location", "intervention")) %>%
+  ggplot(aes(x = variable, y = value, color = intervention)) +
+  geom_boxplot(position = position_dodge()) +
+  facet_wrap(~ location)
+```
+
+
+### Volatile organic compound matter mass concentration
+
+```{r}
+df_class %>%
+  ggplot(aes(x = intervention, y = vocmgm, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
