@@ -20,12 +20,21 @@ library(lubridate)
 ## Data
 
 ```{r}
-df <- read_csv("../data-clean/palas.csv")
-df_class <- filter(df, !no_class)  
+df <- read_csv("../data-clean/palas-all.csv")
+df_class <- read_csv("../data-clean/palas-class.csv")
+df_merge <- read_csv("../data-clean/merged-data.csv")
+```
+
+```{r}
+df_merge_md <- df_merge %>%
+  select(location, day, intervention, co2ppm, rh, cn1cm, pmtotmugm, vocmgm, rav) %>%
+  group_by(location, day) %>%
+  mutate(across(-intervention, ~ .x - mean(.x, na.rm = T))) %>%
+  ungroup()
 ```
 
 
-## Descriptives
+## In class absolute
 
 ### CO2
 
@@ -82,5 +91,82 @@ df_class %>%
 df_class %>%
   ggplot(aes(x = intervention, y = vocmgm, color = intervention)) +
   geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+
+### Rebreated air volume
+
+```{r}
+df_merge %>%
+  ggplot(aes(x = intervention, y = rav, color = intervention)) +
+  geom_boxplot() +
+  facet_wrap(~ location)
+```
+
+
+## In class mean diff
+
+### CO2
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = co2ppm, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  facet_wrap(~ location)
+```
+
+### Humidity 
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = rh, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  facet_wrap(~ location)
+```
+
+
+### Aerosol conentration
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = cn1cm, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  facet_wrap(~ location)
+```
+
+
+### Particle matter concentration
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = pmtotmugm, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  facet_wrap(~ location)
+```
+
+
+### Volatile organic compound matter mass concentration
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = vocmgm, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
+  facet_wrap(~ location)
+```
+
+
+### Rebreated air volume
+
+```{r}
+df_merge_md %>%
+  ggplot(aes(x = intervention, y = rav, color = intervention)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = 0), linetype = "dashed") +
   facet_wrap(~ location)
 ```

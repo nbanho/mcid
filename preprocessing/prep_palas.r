@@ -91,7 +91,8 @@ ggplot(mapping = aes(x = time, y = co2ppm, color = factor(week))) +
 # TODO: select variables for further analysis
 
 
-write.csv(df, "data-clean/palas.csv", row.names = F)
+write.csv(df, "data-clean/palas-all.csv", row.names = F)
+write.csv(df %>% filter(!no_class), "data-clean/palas-class.csv", row.names = F)
 
 
 #### Daily ####
@@ -103,4 +104,4 @@ df_class_daily <- df %>%
   summarize_all(mean, na.rm = T) %>%
   ungroup()
 
-write.csv(df_class_daily, "data-clean/palas-daily-average.csv", row.names = F)
+write.csv(df_class_daily, "data-clean/palas-class-daily-average.csv", row.names = F)
