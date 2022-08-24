@@ -60,13 +60,14 @@ for (i in 1:nrow(roomplan)) {
     mutate(time_min = hour(time) * 60 + minute(time)) %>%
     filter(location == tolower(roomplan$location[i])) %>%
     filter(day == roomplan$day[i]) %>%
-    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i]))
+    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i])) %>%
+    mutate(class = roomplan$class[i])
 }
 df_filt <- do.call(rbind, filt_df_list) %>%
   mutate(no_class = F)
 
 df <- df %>% 
-  left_join(df_filt %>% select(location, date, time, no_class)) %>%
+  left_join(df_filt %>% select(location, class, date, time, no_class)) %>%
   mutate(no_class = ifelse(is.na(no_class), T, F)) %>%
   complete(location, week, day, time) %>%
   mutate(time_min = hour(time) * 60 + minute(time)) %>%
