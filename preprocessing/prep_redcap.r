@@ -16,8 +16,8 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ";") %>%
          class = stringi::stri_extract(`Record.ID`, regex = "\\w\\d\\w"),
          # set class name for Trimbach (only one class) to A
          class = ifelse(is.na(class), "A", class),
-         date_start = as.Date(date_start, format = "%d.%m.%y"),
-         date_end = as.Date(date_end, format = "%d.%m.%y"),
+         date_start = as.Date(date_start, format = "%d.%m.%Y"),
+         date_end = as.Date(date_end, format = "%d.%m.%Y"),
          # special case: teachers --> set date_start = date_end
          date_end = ifelse(is.na(date_end), as.character(date_start + days(1)), as.character(date_end)),
          date_end = as.Date(date_end),
@@ -114,8 +114,8 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
   mutate(day = weekdays(date)) %>%
   #TODO: why are there cases on Saturday and Sunday
   #filter(!(day %in% c("Samstag", "Sonntag"))) %>% 
-  mutate(maskmandate = ifelse(week < 9, 1, 0),
-         airfilter = ifelse(week >= 12, 1, 0)) %>%
+  mutate(maskmandate = ifelse(location == "olten" & week < 8, 1, ifelse(location == "trimbach" & week < 9, 1, 0)),
+         airfilter = ifelse(location == "olten" & week >= 11, 1, ifelse(location == "trimbach" & week >= 10, 1, 0))) %>%
   mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "No")),
          intervention = factor(intervention, levels = c("Mask mandate", "No", "Air filter")))  %>%
   left_join(df_absent) %>%

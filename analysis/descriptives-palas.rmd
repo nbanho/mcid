@@ -15,6 +15,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(reshape2)
 library(lubridate)
+library(lme4)
+library(texreg)
 ```
 
 ## Data
@@ -33,16 +35,35 @@ df_merge_md <- df_merge %>%
   ungroup()
 ```
 
+```{r}
+df_merge_mean <- df_merge %>%
+  filter(!no_class) %>%
+  group_by(location, date) %>%
+  summarize(across(c(week, day, intervention), ~ .x[1]),
+            across(c(co2ppm, rh, cn1cm, pmtotmugm, vocmgm, rav), ~ mean(.x, na.rm = T)),
+            n_in_class = n_class[1] - n_tot_absent[1]) %>%
+  ungroup() %>%
+  mutate(day = factor(day, levels = c("Montag", "Dienstag", "Mittwoch", "Donnerstag",
+                                      "Freitag")),
+         location = factor(location, levels = c("olten", "trimbach")),
+         intervention = factor(intervention, levels = c("No", "Mask mandate", "Air filter")))
+```
+
 
 ## In class absolute
 
 ### CO2
 
 ```{r}
-df_class %>%
+df_merge %>%
   ggplot(aes(x = intervention, y = co2ppm, color = intervention)) +
   geom_boxplot() +
   facet_wrap(~ location)
+```
+
+
+```{r}
+co2_lm <- lm(co2ppm ~ intervention + day + n_in_class + location, data = df_merge_mean)
 ```
 
 ### Humidity 
@@ -52,6 +73,10 @@ df_class %>%
   ggplot(aes(x = intervention, y = rh, color = intervention)) +
   geom_boxplot() +
   facet_wrap(~ location)
+```
+
+```{r}
+rh_lm <- lm(rh ~ intervention + day + n_in_class + location, data = df_merge_mean)
 ```
 
 
@@ -65,6 +90,11 @@ df_class %>%
 ```
 
 
+```{r}
+cn1cm_lm <- lm(cn1cm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+```
+
+
 ### Particle matter concentration
 
 ```{r}
@@ -74,6 +104,9 @@ df_class %>%
   facet_wrap(~ location)
 ```
 
+```{r}
+pmtotmugm_lm <- lm(pmtotmugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+```
 
 ```{r}
 df_class %>%
@@ -94,6 +127,10 @@ df_class %>%
   facet_wrap(~ location)
 ```
 
+```{r}
+vocmgm_lm <- lm(vocmgm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+```
+
 
 ### Rebreated air volume
 
@@ -102,6 +139,33 @@ df_merge %>%
   ggplot(aes(x = intervention, y = rav, color = intervention)) +
   geom_boxplot() +
   facet_wrap(~ location)
+```
+
+```{r}
+rav_lm <- lm(rav ~ intervention + day + n_in_class + location, data = df_merge_mean)
+```
+
+
+### Summary
+
+```{r}
+htmlreg(list(co2_lm, rh_lm, cn1cm_lm, pmtotmugm_lm, vocmgm_lm, rav_lm),
+        file = "../results/linear-models-palas.html",
+        custom.coef.names = c("Intercept", "Mask mandate", "Air filter",
+                              "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
+                              "No. in class", "Trimbach"),
+        custom.model.names = c("CO2", "rH", "Cn",
+                               "PM", "VOC", "RAV"),
+        caption = "Intervention effects on environmental variables",
+        caption.above = T,
+        bold = 0.05,
+        custom.note = "CO2: carbon dioxide (ppm), 
+        rH: relative humidity (%), 
+        Cn: aerosol concentration (1/cm3), 
+        PM total: particle matter mass concentration total (mug/m3), 
+        VOC: volatile organic compounds matter mass concentration (mg/m3), 
+        RAV: rebreathed air volume (l/min). 
+        <br> %stars.")
 ```
 
 

@@ -11,7 +11,9 @@ palas <- read.csv("data-clean/palas-class.csv")
 
 #### Merge data ####
 
-df <- left_join(cases %>% select(-class), palas %>% select(-week,-day,-intervention), by = c("location", "date")) 
+df <- left_join(cases %>% select(-class), 
+                palas %>% select(-week,-day,-intervention), 
+                by = c("location", "date")) 
 
 
 #### Compute infection risk ###

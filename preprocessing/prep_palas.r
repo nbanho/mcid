@@ -21,7 +21,7 @@ load_file <- function(school) {
                 "cn1cm", "m1mum", "m2mum", "m3mum", 
                 "x10dcnmum", "x16dcnmum", "x50dcnmum", "x84dcnmum", "x90dcnmum",
                 "cn1m3", "pia1m3", "tc", "phpa", "rh", "qipalas", "infectionrisk")) %>%
-      mutate(date = as.Date(date, format = "%d.%m.%y")) %>%
+      mutate(date = as.Date(date, format = "%d.%m.%Y")) %>%
       mutate(day = weekdays(date)) %>%
       mutate(week = as.numeric(strftime(date, format = "%V"))) %>%
       filter(!(day %in% c("Samstag", "Sonntag"))) %>%
@@ -33,16 +33,18 @@ load_file <- function(school) {
 
 
 olten <- load_file("olten") %>%
-  filter(!(week %in% c(7, 8))) # filter vacation and washout week
+  filter(!(week %in% c(6, 7))) %>% # filter vacation 
+  mutate(maskmandate = ifelse(week < 8, 1, 0),
+         airfilter = ifelse(week >= 11, 1, 0))
 
 trimbach <- load_file("trimbach") %>%
-  filter(!(week %in% c(7))) # filter vacation and washout week
+  filter(!(week %in% c(6)))  %>% # filter vacation 
+  mutate(maskmandate = ifelse(week < 9, 1, 0),
+         airfilter = ifelse(week >= 10, 1, 0))
 
 
 # combine and add intervention info 
 df <- rbind(olten, trimbach) %>%
-  mutate(maskmandate = ifelse(week < 9, 1, 0),
-         airfilter = ifelse(week >= 12, 1, 0))  %>%
   mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "No")),
          intervention = factor(intervention, levels = c("Mask mandate", "No", "Air filter"))) %>%
   select(-maskmandate,-airfilter)
@@ -60,11 +62,13 @@ for (i in 1:nrow(roomplan)) {
     mutate(time_min = hour(time) * 60 + minute(time)) %>%
     filter(location == tolower(roomplan$location[i])) %>%
     filter(day == roomplan$day[i]) %>%
-    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i])) %>%
-    mutate(class = roomplan$class[i])
+    # TODO: How many minutes before or after start of lecture? Currently: 0min 
+    # TODO: How many minutes before or after end of lecture? Currently: +15min
+    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i] + 15)) %>%
+    mutate(class = roomplan$class[i]) 
 }
 df_filt <- do.call(rbind, filt_df_list) %>%
-  mutate(no_class = F)
+  mutate(no_class = F) 
 
 df <- df %>% 
   left_join(df_filt %>% select(location, class, date, time, no_class)) %>%
