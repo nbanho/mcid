@@ -36,12 +36,25 @@ df_merge_md <- df_merge %>%
 ```
 
 ```{r}
+n_time_class_weighted <- function(n, C) {
+  G <- unique(C)
+  tG <- c()
+  nG <- c()
+  for (i in 1:length(G)) {
+    tG[i] <- length(n[C==G[i]])
+    nG[i] <- n[C==G[i]][i]
+  }
+  sum(tG * nG) / sum(tG)
+}
+
 df_merge_mean <- df_merge %>%
   filter(!no_class) %>%
+  mutate(n_in_class = n_class - n_tot_absent) %>%
   group_by(location, date) %>%
   summarize(across(c(week, day, intervention), ~ .x[1]),
-            across(c(co2ppm, rh, cn1cm, pmtotmugm, vocmgm, rav), ~ mean(.x, na.rm = T)),
-            n_in_class = n_class[1] - n_tot_absent[1]) %>%
+            across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
+                     pm10mugm, vocmgm, rav), ~ mean(.x, na.rm = T)),
+            n_in_class = n_time_class_weighted(n_in_class, class)) %>%
   ungroup() %>%
   mutate(day = factor(day, levels = c("Montag", "Dienstag", "Mittwoch", "Donnerstag",
                                       "Freitag")),
@@ -106,6 +119,10 @@ df_class %>%
 
 ```{r}
 pmtotmugm_lm <- lm(pmtotmugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+pm1mugm_lm <- lm(pm1mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+pm25mugm_lm <- lm(pm25mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+pm4mugm_lm <- lm(pm4mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
+pm10mugm_lm <- lm(pm10mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
 ```
 
 ```{r}
@@ -149,20 +166,21 @@ rav_lm <- lm(rav ~ intervention + day + n_in_class + location, data = df_merge_m
 ### Summary
 
 ```{r}
-htmlreg(list(co2_lm, rh_lm, cn1cm_lm, pmtotmugm_lm, vocmgm_lm, rav_lm),
+htmlreg(list(co2_lm, rh_lm, cn1cm_lm, pm1mugm_lm, pm25mugm_lm, pm4mugm_lm, pm10mugm_lm,
+             vocmgm_lm, rav_lm),
         file = "../results/linear-models-palas.html",
         custom.coef.names = c("Intercept", "Mask mandate", "Air filter",
                               "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
                               "No. in class", "Trimbach"),
         custom.model.names = c("CO2", "rH", "Cn",
-                               "PM", "VOC", "RAV"),
+                               "PM 1", "PM 2.5", "PM 4", "PM 10", "VOC", "RAV"),
         caption = "Intervention effects on environmental variables",
         caption.above = T,
         bold = 0.05,
         custom.note = "CO2: carbon dioxide (ppm), 
         rH: relative humidity (%), 
         Cn: aerosol concentration (1/cm3), 
-        PM total: particle matter mass concentration total (mug/m3), 
+        PM: particle matter mass concentration 1, 2.5, 4, and 10 (mug/m3), 
         VOC: volatile organic compounds matter mass concentration (mg/m3), 
         RAV: rebreathed air volume (l/min). 
         <br> %stars.")
