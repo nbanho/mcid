@@ -24,8 +24,8 @@ load_file <- function(school) {
       mutate(date = as.Date(date, format = "%d.%m.%Y")) %>%
       mutate(day = weekdays(date)) %>%
       mutate(week = as.numeric(strftime(date, format = "%V"))) %>%
-      filter(!(day %in% c("Samstag", "Sonntag"))) %>%
-      mutate(day = factor(day, levels = c("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"))) %>%
+      filter(!(day %in% c("Saturday", "Sunday"))) %>%
+      mutate(day = factor(day, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"))) %>%
     select(location, date, week, day, time, everything())
   
   return(df)
@@ -63,8 +63,8 @@ for (i in 1:nrow(roomplan)) {
     filter(location == tolower(roomplan$location[i])) %>%
     filter(day == roomplan$day[i]) %>%
     # TODO: How many minutes before or after start of lecture? Currently: 0min 
-    # TODO: How many minutes before or after end of lecture? Currently: +15min
-    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i] + 15)) %>%
+    # TODO: How many minutes before or after end of lecture? Currently: 0min
+    filter(between(time_min, roomplan$start_min[i], roomplan$end_min[i])) %>%
     mutate(class = roomplan$class[i]) 
 }
 df_filt <- do.call(rbind, filt_df_list) %>%
