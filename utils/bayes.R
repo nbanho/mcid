@@ -29,6 +29,18 @@ gather_draws_csv2 <- function(model, par, mi1, ma1, mi2, ma2) {
 # To support tidybayes gather_draws for cmdstanr
 tidy_draws.CmdStanMCMC <- function(model, ...) { return(as_draws_df(model$draws(...))) }
 
+tidy_draws.CmdStanMCMC_mat <- function(model, ...) {
+  tidy_draws.CmdStanMCMC(model, ...) %>%
+    select(-`.chain`,-`.iteration`) %>%
+    rename(draw = `.draw`) %>%
+    melt("draw") %>%
+    mutate(variable = stringi::stri_extract(variable, regex = "\\d+,\\d+"),
+           variable_split = str_split(variable, ","),
+           row = map_int(variable_split, function(x) as.integer(x[1])),
+           col = map_int(variable_split, function(x) as.integer(x[2]))) %>%
+    select(row, col, draw, value) 
+}
+
 # loo
 loo.CmdStanMCMC.array <- function(model, ...) {
   loo_pars <- expand.grid(...) %>%
