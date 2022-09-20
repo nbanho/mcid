@@ -154,8 +154,8 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T, 
                             ifelse(school == "School 2" & week %in% c(6,12), T, F))) %>%
-  mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "No")),
-         intervention = factor(intervention, levels = c("Mask mandate", "No", "Air filter")))  %>%
+  mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
+         intervention = factor(intervention, levels = c("Mask mandate", "None", "Air filter")))  %>%
   left_join(df_absent) %>%
   left_join(df_tot) %>%
   mutate(n_absent = ifelse(!is.na(n_absent), n_absent, 0)) %>%

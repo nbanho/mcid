@@ -6,15 +6,19 @@ library(tidyverse)
 #### Clean data ####
 
 cases <- read.csv("data-clean/redcap.csv")
-palas <- read.csv("data-clean/palas-class.csv")
+palas <- read.csv("data-clean/palas.csv")
 
 
-#### Merge data ####
+#### Merge Palas minute data ####
 
-df <- left_join(cases %>% select(-class), 
-                palas %>% select(-week,-day,-intervention) %>% mutate(location = as.character(location)), 
-                by = c("location", "date")) %>%
-  select(location, class, date, week, day, time, no_class, intervention, airfilter, maskmandate, everything())
+PM <- left_join(palas %>%
+                  filter(!no_class) %>%
+                  filter(!no_school), 
+                cases %>% 
+                  filter(is_study_class) %>%
+                  filter(!no_school) %>%
+                  select("school", "class", "date", "n_class", "n_tot_absent"), 
+                by = c("school", "class", "date")) 
 
 
 #### Compute infection risk ###
@@ -34,16 +38,17 @@ df <- left_join(cases %>% select(-class),
 #' - vol: volume of the room
 
 # assumptions see analysis plan for tb transmission risk
-Co <- 410 # alternatively could use morning level (i.e. level when noone was in the room)
+Co <- 410 # TODO: alternatively could use morning level (i.e. level when noone was in the room)
 Ca <- 39000
 p <- 8
 V <- 0.13
 
-df <- df %>%
+PM <- PM %>%
   mutate(f = (co2ppm - Co) / Ca,
          n_room = n_class - n_tot_absent,
          f0 = f * ((n_room - 1) / n_room),
-         rav = p * f0)
+         rav = p * f0) %>%
+  select(school, class, date, week, weekday, time, no_class, intervention, airfilter, maskmandate, n_class, n_tot_absent, n_room, everything())
 
 
-write.csv(df, file = "data-clean/merged-data.csv", row.names = F)
+write.csv(PM, file = "data-clean/left-palas-redcap.csv", row.names = F)
