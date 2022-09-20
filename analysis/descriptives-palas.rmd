@@ -13,242 +13,145 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(tidybayes)
 library(reshape2)
 library(lubridate)
-library(lme4)
+library(rstanarm)
 library(texreg)
+library(gridExtra)
+library(ggpubr)
+library(xtable)
+
+source("../utils/plotting.R")
+source("../utils/tex.R")
+
+descr_plot <- function(variable, label) {
+  df_daily_within %>%
+    ggplot(aes(x = !! sym(variable), y = intervention)) +
+    stat_interval(size = 10) +
+    geom_jitter(aes(shape = school), width = 0, height = .19) +
+    scale_color_brewer() +
+    scale_shape_manual(values = c(6, 16)) +
+    scale_x_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
+    labs(color = "Quantile", shape = "", x = label) +
+    theme_bw2() +
+    theme(axis.title.y = element_blank(), legend.position = "bottom") 
+}
+
 ```
+
 
 ## Data
 
 ```{r}
-df <- read_csv("../data-clean/palas-all.csv")
-df_class <- read_csv("../data-clean/palas-class.csv")
-df_merge <- read_csv("../data-clean/merged-data.csv")
-```
+df <- read_csv("../data-clean/left-palas-redcap.csv") %>%
+  mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
+         intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter")),
+         n_room = n_room / n_class)
+  
 
-```{r}
-df_merge_md <- df_merge %>%
-  select(location, day, intervention, co2ppm, rh, cn1cm, pmtotmugm, vocmgm, rav) %>%
-  group_by(location, day) %>%
-  mutate(across(-intervention, ~ .x - mean(.x, na.rm = T))) %>%
+df_daily <- df %>%
+  group_by(school, date, week, weekday, intervention, maskmandate, airfilter) %>%
+  summarize(across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
+                     pm10mugm, vocmgm, rav, n_room), ~ mean(.x, na.rm = T))) %>%
+  ungroup() %>%
+  group_by(school) %>%
+  arrange(date) %>%
+  mutate(day = 1:n()) %>%
   ungroup()
+
+df_daily_within <- df_daily %>%
+  group_by(school, weekday) %>%
+  mutate(across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
+                     pm10mugm, vocmgm, rav, n_room), ~ (.x - mean(.x)) / sd(.x))) %>%
+  ungroup() 
 ```
 
+
+## Descriptives
+
 ```{r}
-n_time_class_weighted <- function(n, C) {
-  G <- unique(C)
-  tG <- c()
-  nG <- c()
-  for (i in 1:length(G)) {
-    tG[i] <- length(n[C==G[i]])
-    nG[i] <- n[C==G[i]][i]
-  }
-  sum(tG * nG) / sum(tG)
+co2_pl <- descr_plot("co2ppm", "Carbon dioxide (ppm)") 
+cn_pl <- descr_plot("cn1cm", expression("Aerosol concentration"))
+voc_pl <- descr_plot("vocmgm", expression("Volatile organic compounds matter mass concentration"))
+rav_pl <- descr_plot("rav", "Rebreathed air volume")
+pm1_pl <- descr_plot("pm1mugm", expression("Particle matter mass concentration (1"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
+pm25_pl <- descr_plot("pm25mugm", expression("Particle matter mass concentration (2.5"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
+pm4_pl <- descr_plot("pm4mugm", expression("Particle matter mass concentration (4"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
+pm10_pl <- descr_plot("pm10mugm", expression("Particle matter mass concentration (10"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
+
+comb_pl <- ggarrange(co2_pl, pm1_pl, cn_pl, pm25_pl, rav_pl, pm10_pl, voc_pl, pm4_pl,
+                     ncol = 2, nrow = 4, widths = c(1.5, 1) / cm(1),
+                     common.legend = T, legend = "bottom")
+
+print(comb_pl)
+ggsave("../results/decr-palas.pdf", comb_pl, width = 16 / cm(1), height = 18 / cm(1))
+```
+
+## Linear models
+
+```{r}
+seed0 <- 12345
+
+# Results
+coefs <- list()
+intervals <- list()
+draws <- list()
+
+vars <- c("co2ppm", "cn1cm", "vocmgm", "rav", "pm1mugm", "pm25mugm", "pm4mugm", "pm10mugm")
+vars_labels <- c("Carbon dioxide", "Aerosol concentration", "Volatile organic compounds matter mass concentration", "Rebreathed air volume",
+                 expression("Particle matter mass concentration for 1"*mu*"g/m"^3), expression("Particle matter mass concentration for 2.5"*mu*"g/m"^3),
+                 expression("Particle matter mass concentration for 4"*mu*"g/m"^3), expression("Particle matter mass concentration for 10"*mu*"g/m"^3))
+
+for (i in 1:length(vars)) {
+  f <- as.formula(paste0(vars[[i]], "~ intervention + school + n_room"))
+  m <- stan_glm(f, data = df_daily_within, seed = seed0)
+  coefs[[i]] <- c(tex_sign(round_k(coef(m)["interventionMask mandate"])), tex_sign(round_k(coef(m)["interventionAir filter"])))
+  ci95 <- posterior_interval(m)
+  ci95_mask <- sapply(ci95[row.names(ci95) == "interventionMask mandate"], function(x) tex_sign(round_k(x)))
+  ci95_mask <- paste0("[", ci95_mask[1], "; ", ci95_mask[2], "]")
+  ci95_air <- sapply(ci95[row.names(ci95) == "interventionAir filter"], function(x) tex_sign(round_k(x)))
+  ci95_air <- paste0("[", ci95_air[1], "; ", ci95_air[2], "]")
+  intervals[[i]] <- c(ci95_mask, ci95_air)
+  draws[[i]] <- as.data.frame(m)
 }
 
-df_merge_mean <- df_merge %>%
-  filter(!no_class) %>%
-  mutate(n_in_class = n_class - n_tot_absent) %>%
-  group_by(location, date) %>%
-  summarize(across(c(week, day, intervention), ~ .x[1]),
-            across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
-                     pm10mugm, vocmgm, rav), ~ mean(.x, na.rm = T)),
-            n_in_class = n_time_class_weighted(n_in_class, class)) %>%
-  ungroup() %>%
-  mutate(day = factor(day, levels = c("Montag", "Dienstag", "Mittwoch", "Donnerstag",
-                                      "Freitag")),
-         location = factor(location, levels = c("olten", "trimbach")),
-         intervention = factor(intervention, levels = c("No", "Mask mandate", "Air filter")))
-```
+
+# Table
+tbl_results <- cbind(c("Carbon dioxide", "Aerosol concentration", "Volatile organic compounds matter mass concentration", "Rebreathed air volume", 
+                       "Particle matter mass concentration for $1\\mu$g/m$^3$", "Particle matter mass concentration for $2.5\\mu$g/m$^3$", 
+                       "Particle matter mass concentration for $4\\mu$g/m$^3$", "Particle matter mass concentration for $10\\mu$g/m$^3$"),
+                     do.call(rbind, coefs)[ ,1], do.call(rbind, intervals)[ ,1],
+                     rep("", length(coefs)),
+                     do.call(rbind, coefs)[ ,2], do.call(rbind, intervals)[ ,2])
+
+print.xtable(x = xtable(x = tbl_results),
+             type = "latex",
+             file = "../results/palas-model-results.tex",
+             sanitize.text.function = identity,
+             include.colnames = F,
+             include.rownames = F,
+             only.contents = T,
+             hline.after = NULL)
 
 
-## In class absolute
+# Figure
+draws_filt <- do.call(rbind, draws) %>%
+  mutate(outcome = factor(rep(vars, each = nrow(draws[[i]])), levels = rev(vars))) %>%
+  set_names(c("Interceot", "Mask mandate", "Air filter", "School", "InClass", "Sigma", "outcome")) %>%
+  select(outcome, `Mask mandate`, `Air filter`) %>%
+  melt("outcome")
 
-### CO2
+effects_env <- ggplot(draws_filt, aes(y = outcome, color = variable, x = value)) +
+  stat_pointinterval(position = position_dodge(width = .5), fill = "white", shape = 21) +
+  labs(color = "Intervention", x = "Estimated effect") +
+  scale_color_manual(values = cbPalette) +
+  scale_y_discrete(labels = function(x) rev(vars_labels)) +
+  geom_vline(aes(xintercept = 0), linetype = "dotted") +
+  theme_bw2() +
+  theme(axis.title.y = element_blank(), legend.position = "bottom")
 
-```{r}
-df_merge %>%
-  ggplot(aes(x = intervention, y = co2ppm, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
+effects_env
 
-
-```{r}
-co2_lm <- lm(co2ppm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-### Humidity 
-
-```{r}
-df_class %>%
-  ggplot(aes(x = intervention, y = rh, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
-
-```{r}
-rh_lm <- lm(rh ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-
-### Aerosol conentration
-
-```{r}
-df_class %>%
-  ggplot(aes(x = intervention, y = cn1cm, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
-
-
-```{r}
-cn1cm_lm <- lm(cn1cm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-
-### Particle matter concentration
-
-```{r}
-df_class %>%
-  ggplot(aes(x = intervention, y = pmtotmugm, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
-
-```{r}
-pmtotmugm_lm <- lm(pmtotmugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-pm1mugm_lm <- lm(pm1mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-pm25mugm_lm <- lm(pm25mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-pm4mugm_lm <- lm(pm4mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-pm10mugm_lm <- lm(pm10mugm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-```{r}
-df_class %>%
-  select(location, intervention, pm1mugm, pm25mugm, pm4mugm, pm10mugm) %>%
-  melt(c("location", "intervention")) %>%
-  ggplot(aes(x = variable, y = value, color = intervention)) +
-  geom_boxplot(position = position_dodge()) +
-  facet_wrap(~ location)
-```
-
-
-### Volatile organic compound matter mass concentration
-
-```{r}
-df_class %>%
-  ggplot(aes(x = intervention, y = vocmgm, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
-
-```{r}
-vocmgm_lm <- lm(vocmgm ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-
-### Rebreated air volume
-
-```{r}
-df_merge %>%
-  ggplot(aes(x = intervention, y = rav, color = intervention)) +
-  geom_boxplot() +
-  facet_wrap(~ location)
-```
-
-```{r}
-rav_lm <- lm(rav ~ intervention + day + n_in_class + location, data = df_merge_mean)
-```
-
-
-### Summary
-
-```{r}
-htmlreg(list(co2_lm, rh_lm, cn1cm_lm, pm1mugm_lm, pm25mugm_lm, pm4mugm_lm, pm10mugm_lm,
-             vocmgm_lm, rav_lm),
-        file = "../results/linear-models-palas.html",
-        custom.coef.names = c("Intercept", "Mask mandate", "Air filter",
-                              "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
-                              "No. in class", "Trimbach"),
-        custom.model.names = c("CO2", "rH", "Cn",
-                               "PM 1", "PM 2.5", "PM 4", "PM 10", "VOC", "RAV"),
-        caption = "Intervention effects on environmental variables",
-        caption.above = T,
-        bold = 0.05,
-        custom.note = "CO2: carbon dioxide (ppm), 
-        rH: relative humidity (%), 
-        Cn: aerosol concentration (1/cm3), 
-        PM: particle matter mass concentration 1, 2.5, 4, and 10 (mug/m3), 
-        VOC: volatile organic compounds matter mass concentration (mg/m3), 
-        RAV: rebreathed air volume (l/min). 
-        <br> %stars.")
-```
-
-
-## In class mean diff
-
-### CO2
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = co2ppm, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
-```
-
-### Humidity 
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = rh, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
-```
-
-
-### Aerosol conentration
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = cn1cm, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
-```
-
-
-### Particle matter concentration
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = pmtotmugm, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
-```
-
-
-### Volatile organic compound matter mass concentration
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = vocmgm, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
-```
-
-
-### Rebreated air volume
-
-```{r}
-df_merge_md %>%
-  ggplot(aes(x = intervention, y = rav, color = intervention)) +
-  geom_boxplot() +
-  geom_hline(aes(yintercept = 0), linetype = "dashed") +
-  facet_wrap(~ location)
+save_plot(effects_env, "../results/palas-reg-results.pdf", w = 16, h = 12)
 ```

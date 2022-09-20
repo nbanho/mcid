@@ -45,13 +45,16 @@ total_freq_pl <- df  %>%
             Isolated = max(cum_isolated)) %>%
   ungroup() %>%
   melt(c("school", "class")) %>%
+  mutate(variable = factor(variable, levels = rev(c("Confirmed", "Isolated", "Symptomatic")))) %>%
   ggplot(aes(x = class, y = value, fill = variable)) +
   geom_bar(position = "stack", stat = "identity", width = .5, color = "black") +
   scale_fill_brewer() +
   facet_wrap(~ school, scales = "free_x")  +
-  scale_y_continuous(expand = expansion(add = c(0., 0.25))) +
-  labs(x = "Class", y = "Frequency", fill = "Type of case") +
-  theme_bw2()
+  scale_y_continuous(expand = expansion(add = c(0., 0.75))) +
+  labs(x = "Class", y = "Total number of cases", fill = "Type of case", title = "a") +
+  theme_bw2() +
+  theme(legend.position = "left") +
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0))
 
 total_freq_pl
 
@@ -61,169 +64,64 @@ save_plot(total_freq_pl, "../results/total-frequency-of-cases.pdf", w = 14, h = 
 ### New confirmed cases
 
 ```{r}
-cases_time_pl <- df %>%
+df_new <- df %>%
   group_by(school, class) %>%
   arrange(date) %>%
   mutate(day = 1:n()) %>%
   ungroup() %>%
-  mutate(`New cases` = new_confirmed_by_onset + new_symptomatic + new_isolated) %>% 
-  ggplot(aes(x = day, y = class, size = `New cases`, alpha = `New cases`)) +
-  geom_point() +
+  mutate(`New cases` = new_confirmed_by_onset + new_symptomatic + new_isolated) 
+
+maskmandate_dates <- df_new %>%
+  group_by(school) %>%
+  arrange(date) %>%
+  filter(intervention == "None") %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(school, date, day) %>%
+  mutate(day = day -1,
+         intervention = "Mask mandate",
+         start_day = -Inf) %>%
+  rename(end_day = day)
+
+airfilter_dates <- df_new %>%
+  group_by(school) %>%
+  arrange(date) %>%
+  filter(intervention == "Air filter") %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(school, date, day) %>%
+  mutate(intervention = "Air filter",
+         end_day = Inf) %>%
+  rename(start_day = day)
+
+intervention_dates <- rbind(maskmandate_dates, airfilter_dates) %>%
+  mutate(intervention = factor(intervention, levels = c("Mask mandate", "Air filter")))
+
+cases_time_pl <- ggplot() +
+  geom_rect(data = intervention_dates, mapping = aes(xmin = start_day, xmax = end_day, fill = intervention, ymin = -Inf, ymax = Inf), alpha = .25) +
+  geom_point(data = df_new, mapping = aes(x = day, y = class, size = `New cases`, alpha = `New cases`)) +
+  annotate(geom = "text", x = 5, y = .6, label = "Mask mandate", size = 6 / cm(1)) +
+  annotate(geom = "text", x = 45, y = .6, label = "Air filter", size = 6 / cm(1), color = cbPalette[2]) +
   facet_wrap(~ school, scales = "free_y", ncol = 1) +
   scale_color_brewer() +
+  scale_fill_manual(values = cbPalette) +
   scale_size(breaks = seq(0, 3, 1)) +
   scale_x_continuous(breaks = seq(1, 70, 5)) +
-  labs(x = "Day of study period", y = "Class", size = "Number of cases", alpha = "Number of cases") +
+  labs(x = "Day of study period", y = "Class", title = "b",
+       size = "Number of new cases", alpha = "Number of new cases", fill = "") +
   theme_bw2() +
-  theme(legend.title = element_blank(), legend.position = "bottom")
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0))
 
 cases_time_pl
 
 save_plot(cases_time_pl, "../results/cases-over-time.pdf", w = 14, h = 10)
 ```
 
-### New infections
+
+### Summary
 
 ```{r}
-p_in_mean <- vp(max_n, T, p_in)
-plot(p_in_mean[1:14], type = "l")
+comb_pl <- arrangeGrob(total_freq_pl, cases_time_pl, heights = c(6, 10), ncol = 1)
 
-dfI <- df %>%
-  filter(control == 0) %>%
-  group_by(location, date) %>%
-  summarize(new_cases = sum(new_confirmed_by_onset + new_symptomatic),
-            invervention = intervention[1]) %>%
-  ungroup() %>%
-  group_by(location) %>%
-  arrange(date) %>%
-  mutate(mu_new_infections = reduce(map(1:14, ~ lead(new_cases, .) * p_in_mean[.]), `+`)) %>%
-  filter(!is.na(mu_new_infections)) %>%
-  mutate(new_infections = map(mu_new_infections, function(x) rnorm(4e3, x, sqrt(x)))) %>%
-  ungroup() %>%
-  unnest() %>%
-  filter(new_infections >= 0)
-
-dfI %>%
-  ggplot(aes(x = date, y = new_infections)) +
-  stat_lineribbon() +
-  geom_vline(data = df %>% group_by(location) %>% arrange(date) %>% filter(maskmandate==0) %>% slice(1),
-             aes(xintercept = date), linetype = "dashed") +
-  scale_x_date(expand=c(0,0)) +
-  scale_y_continuous(expand =c(0,0)) +
-  facet_wrap(~ location) +
-  scale_fill_brewer()
-```
-
-### Comparison
-
-```{r}
-naDF <- data.frame(date = seq.Date(min(df$date) - days(max_n), min(df$date) - days(1), by = "1 day"),
-                   new_cases = rep(NA, max_n),
-                   intervention = rep("Mask mandate", max_n))
-
-df_by_class <- df %>%
-  group_by(location, class, control, date) %>%
-  mutate(new_cases = new_confirmed_by_onset + new_symptomatic) %>%
-  ungroup() %>%
-  select(location, class, control, date, new_cases, intervention, n_class) %>%
-  group_by(location, class, control, n_class) %>%
-  arrange(date) %>%
-  nest() %>%
-  mutate(data = map(data, function(dat) rbind(naDF, dat)))
-
-set.seed(12345)
-D <- 4e3
-seed <- 14
-mu_p_in <- rnorm(D, p_in_mu_m, p_in_mu_s)
-sigma_p_in <- rnorm(D, p_in_sigma_m, p_in_sigma_s)
-p_ins <- mapply(function(m,s) vp(max_n*2, T, function(x) p_in(x, m, s) ), m = mu_p_in, s = sigma_p_in)
-
-back_comp_I <- function(N, draws = D) {
-  muI <- list()
-  for (i in 1:length(N)) {
-    muI[[i]] <- rep(NA, draws)
-    for (d in 1:draws) {
-      p_in_norm <- p_ins[1:(length(N)-i+1),d] / sum(p_ins[1:(length(N)-i+1),d])
-      muI[[i]][d] <- sum(p_in_norm * N[i:length(N)], na.rm = T)
-    }
-  } 
-  return(muI)
-}
-
-df_by_class <- df_by_class %>%
-  mutate(data = map(data, function(DF) DF %>% 
-                      mutate(mu_new_infections = back_comp_I(new_cases),
-                             draw = map(1:(max_n*2), function(i) 1:D)))) 
-  
-df_by_class_sum <- df_by_class %>%
-  unnest() %>%
-  unnest() %>%
-  select(-new_cases) %>%
-  group_by(location, draw, date, intervention) %>%
-  summarize(mu_infections = sum(mu_new_infections)) %>%
-  ungroup() %>%
-  filter(intervention != "Air filter") 
-```
-
-
-```{r}
-df_by_school <- df %>%
-  group_by(location, date, intervention) %>%
-  summarize(cum_cases = sum(cum_confirmed_by_onset + cum_symptomatic),
-            cum_recovered = sum(cum_recovered_from_confirmed + cum_recovered_from_symptomatic)) %>%
-  ungroup() %>%
-  melt(c("location", "date", "intervention")) %>%
-  mutate(variable = ifelse(grepl("cases", variable), "Cases", "Recovered"))
-
-incidence_pl <- ggplot(mapping = aes(x = date)) +
-  stat_lineribbon(data = df_by_class_sum %>% 
-                    group_by(location, draw) %>% 
-                    arrange(date) %>%
-                    mutate(cum_mu_infections = cumsum(mu_infections)) %>%
-                    filter(date >= min(df$date) - days(14)), 
-                  mapping = aes(y = cum_mu_infections)) +
-  geom_path(data = df_by_school %>%
-              filter(intervention != "Air filter"), 
-            mapping = aes(y = value, color = variable)) +
-  geom_vline(data = df %>% 
-               group_by(location) %>% 
-               arrange(date) %>% 
-               filter(maskmandate==0) %>% slice(1),
-             aes(xintercept = date), linetype = "dashed") +
-  facet_wrap(~ location, scales = "free_x") +
-  scale_fill_brewer() +
-  scale_color_brewer(palette = "Accent") +
-  scale_x_date(expand = c(0,0)) +
-  theme_bw() +
-  labs(y = "Cumulative incidence", color = "Observed", fill = expression(mu[Infections])) +
-  theme(axis.title.x = element_blank())
-
-incidence_pl
-```
-
-```{r}
-df_inc_comp <- df_by_class_sum %>%
-  group_by(location, draw, intervention) %>%
-  summarize(tot_mu_infections = sum(mu_infections)) %>%
-  ungroup() %>%
-  rowwise() %>%
-  mutate(tot_infections = rpois(1, tot_mu_infections)) %>%
-  ungroup() %>%
-  group_by(location, draw) %>%
-  summarize(incidence_ratio = (tot_mu_infections[intervention == "Mask mandate"] + 1) /
-              (tot_mu_infections[intervention == "No"] + 1)) %>%
-  ungroup()
-
-df_inc_comp %>%
-  ggplot(aes(y = location, x = incidence_ratio)) +
-  stat_pointinterval() +
-  geom_vline(aes(xintercept = 1), linetype = "dashed") +
-  labs(x = "Estimated incidence rate ratio") +
-  theme_bw() +
-  theme(axis.title.y = element_blank())
-
-
-  group_by(location, class, control, intervention) %>%
-  summarize(susceptibles[1]) %>%
-  mutate(days = ifelse(intervention == "Mask mandate", days - max_n, days)) 
+ggsave(plot = comb_pl, filename = "../results/redcap-descriptives.pdf", width = 14 / cm(1), height = 16 / cm(1))
 ```
