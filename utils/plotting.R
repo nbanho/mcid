@@ -75,6 +75,7 @@ hist_fun <- function(data, mapping) {
   #scale_x_continuous(limits = c(-1, 1), breaks = seq(-.8, .4, .4))
 }
 
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
 
 save_plot <- function(pl, pdf_file = NULL, tikz_file = NULL, w = 8, h = 4) {
