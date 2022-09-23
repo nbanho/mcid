@@ -40,25 +40,24 @@ max_n <- df %>% filter(class == "Study (B3d)") %>% nrow
 ```{r}
 total_freq_pl <- df  %>%
   group_by(school, class) %>%
-  summarise(Confirmed = max(cum_confirmed),
-            Symptomatic = max(cum_symptomatic),
-            Isolated = max(cum_isolated)) %>%
+  summarise(`Confirmed or known case` = max(cum_confirmed),
+            `Suspected with known symptoms` = max(cum_symptomatic),
+            `Suspected with unknown symptoms` = max(cum_unknown)) %>%
   ungroup() %>%
   melt(c("school", "class")) %>%
-  mutate(variable = factor(variable, levels = rev(c("Confirmed", "Isolated", "Symptomatic")))) %>%
+  mutate(variable = factor(variable, levels = rev(c("Confirmed or known case", "Suspected with known symptoms", "Suspected with unknown symptoms")))) %>%
   ggplot(aes(x = class, y = value, fill = variable)) +
   geom_bar(position = "stack", stat = "identity", width = .5, color = "black") +
   scale_fill_brewer() +
   facet_wrap(~ school, scales = "free_x")  +
   scale_y_continuous(expand = expansion(add = c(0., 0.75))) +
-  labs(x = "Class", y = "Total number of cases", fill = "Type of case", title = "a") +
+  labs(x = "Class", y = "Total number of cases", title = "a") +
   theme_bw2() +
   theme(legend.position = "left") +
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0))
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0),
+        legend.title = element_blank())
 
 total_freq_pl
-
-save_plot(total_freq_pl, "../results/total-frequency-of-cases.pdf", w = 14, h = 6)
 ``` 
 
 ### New confirmed cases
@@ -69,11 +68,20 @@ df_new <- df %>%
   arrange(date) %>%
   mutate(day = 1:n()) %>%
   ungroup() %>%
-  mutate(`New cases` = new_confirmed_by_onset + new_symptomatic + new_isolated) 
+  mutate(new_suspected = new_symptomatic + new_unknown) %>%
+  select(school, class, week, day, intervention, new_confirmed, new_suspected) %>%
+  melt(c("school", "class", "week", "day", "intervention")) %>%
+  mutate(variable = ifelse(variable == "new_confirmed", "Confirmed", "Suspected"),
+         variable = factor(variable, levels = rev(c("Confirmed", "Suspected")))) %>%
+  mutate(value = ifelse(value == 0, NA, value))
 
-maskmandate_dates <- df_new %>%
+maskmandate_dates <- df %>%
+  group_by(school, date, intervention) %>%
+  slice(1) %>%
+  ungroup() %>%
   group_by(school) %>%
   arrange(date) %>%
+  mutate(day = 1:n()) %>%
   filter(intervention == "None") %>%
   slice(1) %>%
   ungroup() %>%
@@ -83,9 +91,13 @@ maskmandate_dates <- df_new %>%
          start_day = -Inf) %>%
   rename(end_day = day)
 
-airfilter_dates <- df_new %>%
+airfilter_dates <- df %>%
+  group_by(school, date, intervention) %>%
+  slice(1) %>%
+  ungroup() %>%
   group_by(school) %>%
   arrange(date) %>%
+  mutate(day = 1:n()) %>%
   filter(intervention == "Air filter") %>%
   slice(1) %>%
   ungroup() %>%
@@ -98,23 +110,25 @@ intervention_dates <- rbind(maskmandate_dates, airfilter_dates) %>%
   mutate(intervention = factor(intervention, levels = c("Mask mandate", "Air filter")))
 
 cases_time_pl <- ggplot() +
-  geom_rect(data = intervention_dates, mapping = aes(xmin = start_day, xmax = end_day, fill = intervention, ymin = -Inf, ymax = Inf), alpha = .25) +
-  geom_point(data = df_new, mapping = aes(x = day, y = class, size = `New cases`, alpha = `New cases`)) +
-  annotate(geom = "text", x = 5, y = .6, label = "Mask mandate", size = 6 / cm(1)) +
+  geom_rect(data = intervention_dates, mapping = aes(xmin = start_day, xmax = end_day, fill = intervention, ymin = -Inf, ymax = Inf), alpha = .15) +
+  geom_point(data = df_new, mapping = aes(x = day, y = class, size = value, color = variable), shape = 21) +
+  annotate(geom = "text", x = 5, y = .6, label = "Mask mandate", size = 6 / cm(1), color = cbPalette[1]) +
   annotate(geom = "text", x = 45, y = .6, label = "Air filter", size = 6 / cm(1), color = cbPalette[2]) +
   facet_wrap(~ school, scales = "free_y", ncol = 1) +
-  scale_color_brewer() +
   scale_fill_manual(values = cbPalette) +
-  scale_size(breaks = seq(0, 3, 1)) +
+  scale_size(range = c(4,8), breaks = seq(0, 3, 1)) +
   scale_x_continuous(breaks = seq(1, 70, 5)) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(9, "Blues")[c(4,8)]) +
   labs(x = "Day of study period", y = "Class", title = "b",
-       size = "Number of new cases", alpha = "Number of new cases", fill = "") +
+       size = "Number of new cases", alpha = "Number of new cases", fill = "Intervention",
+       color = "Cases") +
   theme_bw2() +
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0))
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0)) +
+  guides(color = guide_legend(title.position = "top"),
+         size = guide_legend(title.position = "top"),
+         fill = guide_legend(title.position = "top"))
 
 cases_time_pl
-
-save_plot(cases_time_pl, "../results/cases-over-time.pdf", w = 14, h = 10)
 ```
 
 
@@ -123,5 +137,81 @@ save_plot(cases_time_pl, "../results/cases-over-time.pdf", w = 14, h = 10)
 ```{r}
 comb_pl <- arrangeGrob(total_freq_pl, cases_time_pl, heights = c(6, 10), ncol = 1)
 
-ggsave(plot = comb_pl, filename = "../results/redcap-descriptives.pdf", width = 14 / cm(1), height = 16 / cm(1))
+ggsave(plot = comb_pl, filename = "../results/redcap-descriptives.pdf", width = 16 / cm(1), height = 16 / cm(1))
+```
+
+### Cases by intervention
+
+```{r}
+prop_suspected_pl <- df_new %>%
+  group_by(school, intervention, variable) %>%
+  summarize(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  ggplot(aes(x = intervention, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ school) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(9, "Blues")[c(4,8)]) +
+  labs(x = "Week", y = "Number of new cases") +
+  theme_bw2() 
+
+
+prop_suspected_pl
+```
+
+
+### Table Time Series
+
+```{r}
+tbl <- df %>%
+  mutate(weekday = weekdays(date, abbreviate = T),
+         school = gsub("School ", "", school),
+         date = format(date, "%m-%d")) %>%
+  group_by(school, class) %>%
+  arrange(date) %>%
+  mutate(day = 1:n()) %>%
+  ungroup() %>%
+  select(school, class, date, week, weekday, day, intervention, new_confirmed, new_symptomatic, new_unknown) 
+
+tbl1 <- tbl %>%
+  filter(school == as.character(1)) %>%
+  select(-school) %>%
+  as.matrix()
+
+tbl2 <- tbl %>%
+  filter(school == as.character(2)) %>%
+  select(-school) %>%
+  as.matrix()
+
+print.xtable(xtable(tbl1),
+             file = "../results/cases-time-series-1.tex",
+             type = "latex",
+             sanitize.text.function = identity,
+             include.colnames = F,
+             include.rownames = F,
+             only.contents = T,
+             hline.after = NULL)
+
+print.xtable(xtable(tbl2),
+             file = "../results/cases-time-series-2.tex",
+             type = "latex",
+             sanitize.text.function = identity,
+             include.colnames = F,
+             include.rownames = F,
+             only.contents = T,
+             hline.after = NULL)
+```
+
+
+### Summary table
+
+```{r}
+df %>%
+  mutate(cum_total = cum_confirmed + cum_symptomatic + cum_unknown) %>%
+  group_by(school, class) %>%
+  summarize(across(c(cum_total, cum_confirmed, cum_symptomatic, cum_unknown), max)) %>%
+  ungroup() %>%
+  mutate(class = factor(class, levels = c("Study (E3f)", "Study (B3d)", "Study", "Control")))  %>%
+  arrange(school, desc(class)) %>%
+  as.matrix() %>%
+  t()
 ```

@@ -28,8 +28,32 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ";") %>%
                                         ifelse(school == "School 2" & class == "Study", 20, 18))))) %>%
          # TODO: Should I add 1 assuming there is always a teacher in class or do that later during analysis?) %>%
   # special case: 0 missing day for one student --> remove entry
-  filter(`Anzahl.Tage` != 0)
-  
+  filter(`Anzahl.Tage` != 0) %>%
+  group_by(school, class) %>%
+  arrange(date_start) %>%
+  mutate(id = 1:n()) %>%
+  ungroup()
+
+# summary descriptives of absences
+df %>%
+  select(school, class, date_start, date_end, matches("Absenz")) %>%
+  # set maximum date to end of study period
+  mutate(date_end = as.Date(ifelse(date_end >= max(date_start), as.character(max(date_start)), as.character(date_end)))) %>%
+  mutate(missing = as.numeric(date_end - date_start)) %>% 
+  select(-date_start, -date_end) %>%
+  melt(c("school", "class", "missing")) %>%
+  mutate(value = ifelse(value == "Checked", T, F)) %>%
+  mutate(variable = gsub("Grund.für.die.Absenz....choice.", "", variable, fixed = T),
+         variable = gsub(".", "", variable, fixed = T)) %>%
+  group_by(school, class, variable) %>%
+  summarize(n = sum(missing[value])) %>%
+  ungroup() %>%
+  dcast(school + class ~ variable) %>%
+  mutate(Total = `Quarantäne` + Isolation + Krankheit + Anderes) %>%
+  select(school, class, Total, `Quarantäne`, Isolation, Krankheit, Anderes) %>%
+  arrange(school, desc(class)) %>%
+  as.matrix() %>%
+  t()
 
 #### Filter data ####
 
@@ -69,13 +93,35 @@ df_confirmed <- df %>%
          date_test = as.Date(date_test, format = "%d.%m.%Y")) %>%
   mutate(date_symptoms = as.Date(ifelse(!is.na(date_symptoms), as.character(date_symptoms), 
                                 as.character(pmin(date_start, date_test)))))
+
+df_confirmed %>% 
+  mutate(missing = as.numeric(date_end - date_start)) %>% 
+  ggplot(aes(x = missing)) +
+  geom_histogram() 
+
+
+# Filter isolated cases
+#' counted as confirmed cases
+  
+df_isolated <- df %>%
+  filter(`Falls.eine.mikrobiologische.Untersuchung.für.COVID.19.durchgeführt.wurde..was.ergab.das.Testresultat.`
+         == "") %>%
+  filter(`Grund.für.die.Absenz....choice.Isolation.` == "Checked")
+
+df_confirmed_tot <- df_confirmed %>%
+  select(school, is_study_class, class, date_symptoms, date_end) %>%
+  # consider confirmed cases by date of symptom onset
+  rename(date_start = date_symptoms) %>%
+  rbind(df_isolated %>% select(school, is_study_class, class, date_start, date_end)) %>%
+  mutate(suspected = "confirmed") 
   
 
 # Filter suspected cases
 
 df_suspected <- df %>%
   filter(`Falls.eine.mikrobiologische.Untersuchung.für.COVID.19.durchgeführt.wurde..was.ergab.das.Testresultat.`
-         == "" ) %>%
+         == "") %>%
+  filter(`Grund.für.die.Absenz....choice.Krankheit.` == "Checked") %>%
   filter(!grepl("Schnuppern", `Falls.anderes`)) %>%
   filter(!grepl("Persönliches", `Falls.anderes`)) %>%
   filter(!grepl("Unfall", `Falls.anderes`)) %>%
@@ -85,33 +131,42 @@ df_suspected <- df %>%
   filter(!grepl("50% Krankgeschrieben", `Falls.anderes`)) 
 
 df_suspected <- df_suspected %>%
-  select(school, is_study_class, class, date_start, date_end, `Grund.für.die.Absenz....choice.Isolation.`, matches("Welche.Symptome.hat.der")) %>%
-  set_names(c("school", "is_study_class", "class", "date_start", "date_end",
-              "isolation",
+  select(school, is_study_class, class, id, date_start, date_end,  matches("Welche.Symptome.hat.der")) %>%
+  set_names(c("school", "is_study_class", "class", "id", "date_start", "date_end",
               "fever", "chills", "limb pain", "loss of taste", "loss of smell",
               "fatigue", "cough", "cold", "diarrhea", "sore throat", "headache",
               "breathing difficulties", "stomach",
               "other", "none")) %>%
   select(-other, -none) %>%
-  mutate(across(-c(school, is_study_class, class, date_start, date_end), ~ ifelse(.x == "Checked", T, F))) %>%
-  melt(c("school", "is_study_class", "class", "date_start", "date_end", "isolation")) %>%
-  group_by(school, is_study_class, class, date_start, date_end, isolation) %>%
+  mutate(across(-c(school, is_study_class, class, id, date_start, date_end), ~ ifelse(.x == "Checked", T, F))) %>%
+  melt(c("school", "is_study_class", "class", "id", "date_start", "date_end")) %>%
+  group_by(school, is_study_class, class, id, date_start, date_end) %>%
   summarise(suspected = ifelse(any(value), "symptomatic", "unknown")) %>%
+  ungroup() 
+
+df_suspected %>%
+  group_by(school, class, suspected) %>%
+  summarize(n = n()) %>%
   ungroup() %>%
-  # note here that isolated refers to isolated but unknown whether symptomatic
-  mutate(suspected = ifelse(suspected == "symptomatic", "symptomatic", ifelse(isolation, "isolated", "unknown"))) 
+  ggplot(aes(y = n, x = class, fill = suspected)) +
+  facet_wrap(~ school, scales = "free_x") +
+  geom_bar(stat = "identity")
+
+
+df_suspected %>% 
+  mutate(missing = as.numeric(date_end - date_start)) %>% 
+  ggplot(aes(x = missing)) +
+  facet_wrap(~ suspected) +
+  geom_histogram() +
+  scale_x_log10()
 
 
 #### Combine data ####
 
-df_cases <- df_confirmed %>%
+df_cases <- df_confirmed_tot %>%
   select(school, is_study_class, class, date_start) %>%
   mutate(suspected = "confirmed") %>%
-  rbind(df_confirmed %>%
-          select(school, is_study_class, class, date_symptoms) %>%
-          rename(date_start = date_symptoms) %>%
-          mutate(suspected = "confirmed_by_onset")) %>%
-  rbind(df_confirmed %>%
+  rbind(df_confirmed_tot %>%
           select(school, is_study_class, class, date_end) %>%
           rename(date_start = date_end) %>%
           mutate(suspected = "recovered_from_confirmed")) %>%
@@ -125,8 +180,8 @@ df_cases <- df_confirmed %>%
   summarize(new_cases = n()) %>%
   ungroup() %>%
   dcast(date_start + school + is_study_class + class ~ suspected) %>%
-  mutate_at(vars(confirmed, confirmed_by_onset, symptomatic, isolated, unknown,
-                 recovered_from_confirmed, recovered_from_symptomatic, recovered_from_isolated, recovered_from_unknown), 
+  mutate_at(vars(confirmed, symptomatic, unknown,
+                 recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
             function(x) ifelse(is.na(x), 0, x))
 
 df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start), 
@@ -139,15 +194,14 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
   rename(date = date_start) %>%
   group_by(school, is_study_class, class) %>%
   arrange(date) %>%
-  mutate_at(vars(confirmed, confirmed_by_onset, symptomatic, isolated, unknown,
-                 recovered_from_confirmed, recovered_from_symptomatic, recovered_from_isolated, recovered_from_unknown), 
+  mutate_at(vars(confirmed, symptomatic, unknown,
+                 recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
             function(x) ifelse(is.na(x), 0, x)) %>%
-  mutate(across(c(confirmed, confirmed_by_onset, symptomatic, isolated, unknown,
-                  recovered_from_confirmed, recovered_from_symptomatic, recovered_from_isolated, recovered_from_unknown), 
+  mutate(across(c(confirmed, symptomatic, unknown,
+                  recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
                 cumsum, .names = 'cum_{col}')) %>%
   ungroup() %>%
   mutate(week = as.numeric(strftime(date, format = "%V")))  %>%
-  mutate(day = weekdays(date)) %>%
   mutate(maskmandate = ifelse(school == "School 1" & week < 8, 1, 
                               ifelse(school == "School 2" & week < 9, 1, 0)),
          airfilter = ifelse(school == "School 1" & week >= 11, 1, 
@@ -161,25 +215,20 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
   mutate(n_absent = ifelse(!is.na(n_absent), n_absent, 0)) %>%
   rename(n_tot_absent = n_absent,
          new_confirmed = confirmed,
-         new_confirmed_by_onset = confirmed_by_onset,
          new_symptomatic = symptomatic,
-         new_isolated = isolated,
          new_unknown = unknown,
          new_recovered_from_confirmed = recovered_from_confirmed,
          new_recovered_from_symptomatic = recovered_from_symptomatic,
-         new_recovered_from_isolated = recovered_from_isolated,
          new_recovered_from_unknown = recovered_from_unknown) %>%
-  # absent other is absent for unsuspected reasons of disease
-  mutate(n_absent_other = n_tot_absent - new_confirmed - new_symptomatic - new_isolated - new_unknown) %>%
   mutate(weekday = weekdays(date),
          weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0)) %>%
-  select(school, is_study_class, class, date, week, day, weekday, weekend, 
+  select(school, is_study_class, class, date, week, weekday, weekend, 
          intervention, airfilter, maskmandate, no_school,
-         n_class, n_tot_absent, n_absent_other, 
-         new_confirmed, new_confirmed_by_onset, new_symptomatic, new_isolated, new_unknown, 
-         cum_confirmed, cum_confirmed_by_onset, cum_symptomatic, cum_isolated, cum_unknown, 
-         new_recovered_from_confirmed, new_recovered_from_symptomatic, new_recovered_from_isolated, new_recovered_from_unknown,
-         cum_recovered_from_confirmed, cum_recovered_from_symptomatic, cum_recovered_from_isolated, cum_recovered_from_unknown)
+         n_class, n_tot_absent, 
+         new_confirmed, new_symptomatic, new_unknown, 
+         cum_confirmed, cum_symptomatic, cum_unknown, 
+         new_recovered_from_confirmed, new_recovered_from_symptomatic, new_recovered_from_unknown,
+         cum_recovered_from_confirmed, cum_recovered_from_symptomatic, cum_recovered_from_unknown)
 
 
 write.csv(df_cases, "data-clean/redcap.csv", row.names = F)
