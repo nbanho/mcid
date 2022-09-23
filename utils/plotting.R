@@ -1,4 +1,5 @@
-library(ggpattern)
+require(ggpattern)
+require(gridExtra)
 require(GGally)
 
 # ggplot theme for Nature style

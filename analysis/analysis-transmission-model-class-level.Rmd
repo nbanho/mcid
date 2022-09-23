@@ -1,0 +1,434 @@
+---
+title: "Transmission Modeling"
+author: "NB"
+date: "2022-09-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(cmdstanr)
+library(reshape2)
+library(lubridate)
+
+source("../utils/epi.r")
+source("../utils/bayes.R")
+source("../utils/plotting.R")
+```
+
+
+## Data
+
+```{r}
+r_est <- read_csv("../data-clean/r-estimates.csv")
+
+df <- read_csv("../data-clean/redcap.csv") %>%
+  filter(!no_school) %>%
+  mutate(new_cases = new_confirmed + new_symptomatic + new_unknown,
+         cum_cases = cum_confirmed + cum_symptomatic + cum_unknown,
+         prop_absences = n_tot_absent / n_class) %>%
+  rename(absences = n_tot_absent) %>%
+  group_by(school, class) %>%
+  arrange(date) %>%
+  mutate(day = 1:n()) %>%
+  ungroup() %>%
+  left_join(r_est)
+```
+
+```{r}
+col_order <- c("School 1_Study (E3f)", "School 1_Study (B3d)", "School 1_Control", "School 2_Study", "School 2_Control")
+names(col_order) <- 1:5
+
+maskmandate_dates <- df %>%
+  group_by(school, class) %>%
+  arrange(date) %>%
+  filter(intervention == "None") %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(school, class, date, day) %>%
+  mutate(day = day -1,
+         intervention = "Mask\nmandate")
+
+airfilter_dates <- df %>%
+  group_by(school, class) %>%
+  arrange(date) %>%
+  filter(intervention == "Air filter") %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(school, class, date, day) %>%
+  mutate(intervention = "Air\nfilter")
+
+intervention_dates <- rbind(maskmandate_dates, airfilter_dates) %>%
+  mutate(start_day = ifelse(intervention == "Mask\nmandate", -Inf, day),
+         end_day = ifelse(intervention == "Air\nfilter", Inf, day),
+         class = paste(school, class),
+         class = factor(class, levels = gsub("_", " ", col_order)),
+         intervention = factor(intervention, levels = c("Mask\nmandate", "Air\nfilter")),
+         x = ifelse(intervention == "Mask\nmandate", 7, 45)) 
+```
+
+
+## Descriptives
+
+```{r}
+df %>%
+  select(school, class, day, cum_cases, n_class) %>%
+  melt(c("school", "class", "day")) %>%
+  ggplot(aes(x = day, y = value, color = class, linetype = variable)) +
+  geom_path() +
+  facet_wrap(~ school) +
+  scale_y_continuous(expand= expansion(add = c(0,0.5))) +
+  scale_x_continuous(expand = c(0,0))
+
+df %>%
+  ggplot(aes(x = new_cases)) +
+  geom_histogram()
+  
+
+df %>%
+  select(school, class, day, prop_absences) %>%
+  melt(c("school", "class", "day")) %>%
+  ggplot(aes(x = day, y = value, color = class)) +
+  geom_line() +
+  facet_wrap(~ school) +
+  scale_y_continuous(expand= c(0,0), limits = c(0,1)) +
+  scale_x_continuous(expand = c(0,0))
+
+df %>%
+  ggplot(aes(x = prop_absences)) +
+  geom_histogram()
+
+r_est %>%
+  filter(between(date, min(df$date), max(df$date))) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = median_R_mean)) +
+  geom_line(aes(y = median_R_mean + median_R_SD), linetype = "dashed") +
+  geom_line(aes(y = median_R_mean - median_R_SD), linetype = "dashed") +
+  geom_vline(data = intervention_dates, mapping = aes(xintercept = date), linetype = "dotted", color = "red") +
+  geom_hline(aes(yintercept = 1.0), linetype = "dotted", color = "blue")
+```
+
+
+## Simulation
+
+
+```{r}
+set.seed(12345)
+
+S <- 12
+D <- 52 + S
+pop <- 10
+pin <- vp(D+S, F, p_in)
+alpha <- -3
+
+
+newI <- c()
+newN <- c()
+SU <- c()
+cumI <- c()
+cumN <- c()
+
+for (i in 1:1) {
+  newI[1] <- rexp(1, 1)
+  cumI[1] <- newI[1]
+  SU[1] <- pop - cumI[1]
+  newN[1] <- sum(newI[1] * tail(rev(pin), 1))
+  cumN[1] <- newN[1]
+  for (d in 2:D) {
+    newI[d] <- invlogit(alpha) * SU[d-1]
+    cumI[d] <- cumI[d-1] + newI[d]
+    SU[d] <- pop - cumI[d]
+    newN[d] <- sum(newI[1:d] * tail(rev(pin), d))
+    cumN[d] <- cumN[d-1] + newN[d]
+  }
+}
+
+simDat <- data.frame(day = 1:D,
+                     infections = cumI,
+                     cases = cumN,
+                     susceptibles = SU)
+
+simDat %>%
+  melt("day") %>%
+  ggplot(aes(x = day, y = value, color = variable)) +
+  geom_line()
+```
+
+
+## Modeling
+
+### Stan Data
+
+```{r}
+sDF <- list(
+  L = 5,
+  D = nrow(df) / 5,
+  S = round(exp(p_in_mu_m + p_in_sigma_m^2 / 2)) * 2,
+  new_cases = df %>%
+    select(school, class, day, new_cases) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix(),
+  population = df %>%
+    select(school, class, day, n_class) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    slice(1) %>%
+    as.matrix() %>% 
+    c(),
+  prop_absences = df %>%
+    select(school, class, day, prop_absences) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix(),
+  medianRest_mean = df %>%
+    select(school, class, day, median_R_mean) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix(),
+  maskmandate = df %>%
+    select(school, class, day, maskmandate) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix(),
+  airfilter = df %>%
+    select(school, class, day, airfilter) %>%
+    dcast(day ~ school + class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix(),
+  multiplier = c(1, 33 / 14, 23 / 14, 1, 1), 
+  p_in_mu_m = p_in_mu_m,
+  p_in_mu_s = p_in_mu_s,
+  p_in_sigma_m = p_in_sigma_m,
+  p_in_sigma_s = p_in_sigma_s
+)
+
+# add data for seeding phase
+sDF$maskmandate <- rbind(matrix(1, nrow = sDF$S, ncol = sDF$L), sDF$maskmandate)
+sDF$airfilter <- rbind(matrix(0, nrow = sDF$S, ncol = sDF$L), sDF$airfilter)
+r_est_seed <- r_est %>% 
+  filter(between(date, min(df$date) - sDF$S, min(df$date) - 1)) %>% 
+  arrange(date) %>%
+  select(median_R_mean) %>%
+  as.matrix()
+sDF$medianRest_mean <- rbind(matrix(rep(r_est_seed, 5), ncol = 5), sDF$medianRest_mean)
+```
+
+### Model
+
+```{r}
+tm <- cmdstan_model("../models/tm_school_modified.stan", cpp_options = list(stan_threads = T))
+#tm <- cmdstan_model("../models/tm_school.stan")
+tmFit <- tm$sample(
+  data = sDF,
+  seed = 12345,
+  chains = 4,
+  iter_warmup = 1e3,
+  iter_sampling = 1e3,
+  parallel_chains = 4,
+  threads_per_chain = 2,
+  refresh = 200
+)
+
+#tmFit$save_output_files(dir = "../fitted-models", basename = "tm_school")
+
+tmFit$summary(c("phi_N", "alpha", "mu_p_in", "sigma_p_in",
+                "theta_M", "theta_A", 
+                "tau", "theta_l",
+                "gamma"))
+```
+
+### Model check
+
+```{r}
+# Prior vs posterior checks
+tidy_draws.CmdStanMCMC(tmFit, "alpha") %>% 
+  melt(c(".chain", ".draw", ".iteration")) %>%
+  ggplot(aes(x = value)) +
+  geom_density() +
+  facet_wrap(~ variable) +
+  geom_density(data = data.frame(value = rst(4e3, -4, 2, 3)), color = "blue")
+
+tidy_draws.CmdStanMCMC(tmFit, "theta_M") %>% 
+  melt(c(".chain", ".draw", ".iteration")) %>%
+  ggplot(aes(x = value)) +
+  facet_wrap(~ variable) +
+  geom_density() +
+  geom_density(data = data.frame(value = rst(4e3, 0, 1, 7)), color = "blue")
+
+tidy_draws.CmdStanMCMC(tmFit, "theta_A") %>% 
+  melt(c(".chain", ".draw", ".iteration")) %>%
+  ggplot(aes(x = value)) +
+  facet_wrap(~ variable) +
+  geom_density() +
+  geom_density(data = data.frame(value = rst(4e3, 0, 1, 7)), color = "blue")
+```
+
+### Cumulative infections
+
+```{r}
+comp_I <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_cum_infections") %>%
+  mutate(variable = "Infections") 
+
+comp_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_cum_cases") %>%
+  mutate(variable = "Cases") 
+
+comp_S <- tidy_draws.CmdStanMCMC_mat(tmFit, "susceptibles") %>%
+  mutate(variable = "Susceptibles") 
+
+est_comp <- rbind(comp_I, comp_N, comp_S) %>%
+  rename(day = row, 
+         class = col) %>%
+  mutate(class = gsub("_", " ", recode(class, !!! col_order)),
+         class = factor(class, levels = gsub("_", " ", col_order)),
+         day = day - sDF$S) %>%
+  select(-draw) %>%
+  group_by(class, day, variable) %>%
+  mean_qi() %>%
+  ungroup() %>%
+  mutate(type = "Estimated")
+
+df_wSeed <- df %>% 
+  mutate(class = paste(school, class)) %>%
+  select(class, day, cum_cases) %>%
+  rename(value = cum_cases) %>%
+  left_join(est_comp %>%
+    select(class, day, variable, value) %>%
+    filter(variable == "Cases") %>%
+    filter(day == 1) %>%
+    mutate(value = round(value),
+           type = "Observed") %>%
+    rename(seed_value = value) %>%
+    select(-day)) %>%
+  mutate(value = value + seed_value) %>%
+  left_join(data.frame(class = gsub("_", " ", col_order),
+                       multiplier = sDF$multiplier)) %>%
+  mutate(value = value / multiplier) %>%
+  mutate(class = factor(class, levels = gsub("_", " ", col_order)))
+
+cum_inc_pl <- ggplot(mapping = aes(x = day)) +
+  geom_line(data = est_comp, mapping = aes(y = value, color = variable, linetype = type), size = 1) +
+  geom_ribbon(data = est_comp, mapping = aes(ymin = .lower, ymax = .upper, fill = variable), alpha = .2) +
+  geom_line(data = df_wSeed, mapping = aes(y = value, color = variable, linetype = type), size = 1) +
+  #geom_vline(data = intervention_dates, mapping = aes(xintercept = day), linetype = "dotted") +
+  geom_vline(data = data.frame(x=1), mapping = aes(xintercept = x), linetype = "dotted", color = "black") +
+  scale_fill_brewer(palette = "Accent") +
+  scale_color_brewer(palette = "Accent") +
+  facet_wrap(~ class) +
+  scale_x_continuous(expand = c(0,0), breaks = c(-11, seq(1, 51, 10))) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = "Cumulative incidence", color = "", fill = "", linetype = "") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), legend.position = "bottom")
+
+cum_inc_pl
+
+save_plot(cum_inc_pl, "../results/redcap-supp-results-incidence.pdf", w = 16, h = 12)
+```
+
+### Estimated Infections
+
+```{r}
+new_I <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_new_infections") %>%
+  rename(day = row,
+         class = col) %>%
+  mutate(class = gsub("_", " ", recode(class, !!! col_order)),
+         class = factor(class, levels = gsub("_", " ", col_order)),
+         day = day - sDF$S) %>%
+  filter(day >= 1) %>%
+  select(-draw) %>%
+  group_by(class, day) %>%
+  mean_qi() %>%
+  ungroup()
+
+est_I_pl <- ggplot(new_I, aes(x = day)) +
+  geom_path(aes(y = value), color = RColorBrewer::brewer.pal(9, "Blues")[7]) +
+  geom_ribbon(aes(ymin = .lower, ymax = .upper), fill = RColorBrewer::brewer.pal(9, "Blues")[7], alpha = .2) +
+  facet_wrap(~ class) +
+  geom_rect(data = intervention_dates, 
+            mapping = aes(xmin = start_day, xmax = end_day, fill = intervention, ymin = -Inf, ymax = Inf), 
+            alpha = .15) +
+  geom_text(data = intervention_dates, aes(label = intervention, color = intervention, x = x, y = 2), size = 6 / cm(1)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = cbPalette) +
+  scale_color_manual(values = cbPalette) +
+  labs(y = "Estimated number of new infections", color = "Intervention", title = "c") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), legend.position = "none",
+        plot.title = element_text(hjust = 0)) 
+
+est_I_pl
+```
+
+
+### Avoided infections
+
+```{r}
+avoided_I_masks <- tidy_draws.CmdStanMCMC_mat(tmFit, "avoided_infections_Masks") 
+
+avoided_I_masks_class <- avoided_I_masks %>%
+  group_by(col, draw) %>%
+  summarize(value = -sum(value)) %>%
+  ungroup() %>%
+  rename(class = col) %>%
+  mutate(class = gsub("_", " ", recode(class, !!! col_order)),
+         class = factor(class, levels = gsub("_", " ", col_order)))
+
+avoided_I_masks_class_mean <- avoided_I_masks_class %>%
+  group_by(class) %>%
+  summarize(value = mean(value)) %>%
+  ungroup() 
+
+av_inf_pl <- ggplot(mapping = aes(y = value, x = class)) +
+  stat_interval(data = avoided_I_masks_class) +
+  geom_point(data = avoided_I_masks_class_mean, size = 2, fill = "white", shape = 21) +
+  geom_hline(mapping = aes(yintercept = 0), linetype = "dotted") + 
+  scale_color_brewer() +
+  labs(y = "Estimated expected number of avoided infections", color = "CrI") +
+  theme_bw2() +
+  theme(axis.title.y = element_blank())
+
+av_inf_pl
+
+
+avoided_I_masks_tot <- avoided_I_masks %>%
+  group_by(draw) %>%
+  summarize(value = -sum(value)) %>%
+  ungroup() %>%
+  mutate(class = "TOtal")
+
+
+avoided_I_masks_tot_mean <- avoided_I_masks_tot %>%
+  group_by(class) %>%
+  summarize(value = mean(value)) %>%
+  ungroup()
+
+av_inf_tot_pl <- ggplot(mapping = aes(x = value, y = class)) +
+  stat_interval(data = avoided_I_masks_tot) +
+  geom_point(data = avoided_I_masks_tot_mean, size = 2, fill = "white", shape = 21) +
+  geom_vline(mapping = aes(xintercept = 0), linetype = "dotted") + 
+  scale_color_brewer() +
+  labs(x = "Estimated total number of avoided infections due to mask mandates", color = "CrI", title = "d") +
+  theme_bw2() +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0))
+
+av_inf_tot_pl
+```
+
+
+### Summary
+
+```{r}
+comb_pl <- arrangeGrob(est_I_pl, av_inf_tot_pl, heights = c(6, 2), ncol = 1)
+
+ggsave(plot = comb_pl, filename = "../results/redcap-results.pdf", width = 16 / cm(1), height = 8 / cm(1))
+```

@@ -206,6 +206,7 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
                               ifelse(school == "School 2" & week < 9, 1, 0)),
          airfilter = ifelse(school == "School 1" & week >= 11, 1, 
                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
+         airfilter = ifelse(class == "Control", 0, airfilter),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T, 
                             ifelse(school == "School 2" & week %in% c(6,12), T, F))) %>%
   mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),

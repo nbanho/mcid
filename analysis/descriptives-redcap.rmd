@@ -55,7 +55,7 @@ total_freq_pl <- df  %>%
   theme_bw2() +
   theme(legend.position = "left") +
   theme(legend.position = "bottom", plot.title = element_text(hjust = 0),
-        legend.title = element_blank())
+        legend.title = element_blank(), axis.title.x = element_blank())
 
 total_freq_pl
 ``` 
@@ -123,7 +123,7 @@ cases_time_pl <- ggplot() +
        size = "Number of new cases", alpha = "Number of new cases", fill = "Intervention",
        color = "Cases") +
   theme_bw2() +
-  theme(legend.position = "bottom", plot.title = element_text(hjust = 0)) +
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0), axis.title = element_blank()) +
   guides(color = guide_legend(title.position = "top"),
          size = guide_legend(title.position = "top"),
          fill = guide_legend(title.position = "top"))
@@ -135,27 +135,9 @@ cases_time_pl
 ### Summary
 
 ```{r}
-comb_pl <- arrangeGrob(total_freq_pl, cases_time_pl, heights = c(6, 10), ncol = 1)
+comb_pl <- arrangeGrob(total_freq_pl, cases_time_pl, heights = c(5, 8), ncol = 1)
 
-ggsave(plot = comb_pl, filename = "../results/redcap-descriptives.pdf", width = 16 / cm(1), height = 16 / cm(1))
-```
-
-### Cases by intervention
-
-```{r}
-prop_suspected_pl <- df_new %>%
-  group_by(school, intervention, variable) %>%
-  summarize(value = sum(value, na.rm = T)) %>%
-  ungroup() %>%
-  ggplot(aes(x = intervention, y = value, fill = variable)) +
-  geom_bar(stat = "identity", position = "stack") +
-  facet_wrap(~ school) +
-  scale_color_manual(values = RColorBrewer::brewer.pal(9, "Blues")[c(4,8)]) +
-  labs(x = "Week", y = "Number of new cases") +
-  theme_bw2() 
-
-
-prop_suspected_pl
+ggsave(plot = comb_pl, filename = "../results/redcap-descriptives.pdf", width = 16 / cm(1), height = 14 / cm(1))
 ```
 
 

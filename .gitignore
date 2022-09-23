@@ -5,9 +5,13 @@
 /data-clean/**/*.csv
 /data-clean/**/*.xls
 /data-clean/**/*.xlsx
+/**/_old/*
+/fitted-models/**/*.csv
+/results/*.tex
 
 # Binary files
 *.png
+*.pdf
 
 # History files
 .Rhistory
