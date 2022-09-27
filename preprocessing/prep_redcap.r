@@ -22,7 +22,7 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ";") %>%
          # special case: teachers --> set date_start = date_end
          date_end = ifelse(is.na(date_end), as.character(date_start + days(1)), as.character(date_end)),
          date_end = as.Date(date_end),
-         n_class = ifelse(class == "Study (B3d)", 14, 
+         n_class = ifelse(class == "Study (B3d)", 14,
                           ifelse(class == "Study (E3f)", 24,
                                  ifelse(school == "School 1", 14, 
                                         ifelse(school == "School 2" & class == "Study", 20, 18))))) %>%
@@ -222,7 +222,9 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
          new_recovered_from_symptomatic = recovered_from_symptomatic,
          new_recovered_from_unknown = recovered_from_unknown) %>%
   mutate(weekday = weekdays(date),
-         weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0)) %>%
+         weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
+         class = ifelse(class == "Study (E3f)", "Study (A)", 
+                        ifelse(class == "Study (B3d)", "Study (B)", class))) %>%
   select(school, is_study_class, class, date, week, weekday, weekend, 
          intervention, airfilter, maskmandate, no_school,
          n_class, n_tot_absent, 

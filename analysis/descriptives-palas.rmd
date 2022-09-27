@@ -20,24 +20,11 @@ library(rstanarm)
 library(texreg)
 library(gridExtra)
 library(ggpubr)
+library(ggridges)
 library(xtable)
 
 source("../utils/plotting.R")
 source("../utils/tex.R")
-
-descr_plot <- function(variable, label) {
-  df_daily_within %>%
-    ggplot(aes(x = !! sym(variable), y = intervention)) +
-    stat_interval(size = 10) +
-    geom_jitter(aes(shape = school), width = 0, height = .19) +
-    scale_color_brewer() +
-    scale_shape_manual(values = c(6, 16)) +
-    scale_x_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
-    labs(color = "Quantile", shape = "", x = label) +
-    theme_bw2() +
-    theme(axis.title.y = element_blank(), legend.position = "bottom") 
-}
-
 ```
 
 
@@ -65,27 +52,33 @@ df_daily_within <- df_daily %>%
   mutate(across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
                      pm10mugm, vocmgm, rav, n_room), ~ (.x - mean(.x)) / sd(.x))) %>%
   ungroup() 
+
+vars <- c("co2ppm", "rh", "rav", "cn1cm", "pmtotmugm", "pm1mugm", "pm25mugm", "pm4mugm")
+vars_labels <- c("CO[2]~(ppm)", "RH~('%')", "RAV~(l/min)", "CN~(1/cm^3)", 
+                 "PM[Total]~(mu*gm^{-3})", "PM[1]~(mu*gm^{-3})", "PM[2.5]~(mu*gm^{-3})", "PM[4]~(mu*gm^{-3})")
+names(vars_labels) <- vars
+vars_labels_no_units <- c("CO[2]", "RH", "RAV", "CN", "PM[Total]", "PM[1]", "PM[2.5]", "PM[4]")
+names(vars_labels_no_units) <- vars
 ```
 
 
 ## Descriptives
 
 ```{r}
-co2_pl <- descr_plot("co2ppm", "Carbon dioxide (ppm)") 
-cn_pl <- descr_plot("cn1cm", expression("Aerosol concentration"))
-voc_pl <- descr_plot("vocmgm", expression("Volatile organic compounds matter mass concentration"))
-rav_pl <- descr_plot("rav", "Rebreathed air volume")
-pm1_pl <- descr_plot("pm1mugm", expression("Particle matter mass concentration (1"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
-pm25_pl <- descr_plot("pm25mugm", expression("Particle matter mass concentration (2.5"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
-pm4_pl <- descr_plot("pm4mugm", expression("Particle matter mass concentration (4"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
-pm10_pl <- descr_plot("pm10mugm", expression("Particle matter mass concentration (10"*mu*"g/"*"m"^3*")")) + theme(axis.text.y = element_blank())
+boxplots <- df_daily %>%
+  select(school, intervention, co2ppm, rh, rav, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm) %>%
+  melt(c("school", "intervention")) %>%
+  ggplot(aes(color = intervention, y = value, x = school)) +
+  facet_wrap(~ variable, scales = "free_y", ncol = 2, labeller = as_labeller(vars_labels, label_parsed)) +
+  geom_boxplot(outlier.size = 1) +
+  scale_color_manual(values = c("black", cbPalette[1:2])) +
+  labs(color = "Intervention") +
+  theme_bw2() +
+  theme(legend.position = "bottom", axis.title = element_blank())
 
-comb_pl <- ggarrange(co2_pl, pm1_pl, cn_pl, pm25_pl, rav_pl, pm10_pl, voc_pl, pm4_pl,
-                     ncol = 2, nrow = 4, widths = c(1.5, 1) / cm(1),
-                     common.legend = T, legend = "bottom")
+boxplots
 
-print(comb_pl)
-ggsave("../results/decr-palas.pdf", comb_pl, width = 16 / cm(1), height = 18 / cm(1))
+save_plot(boxplots, "../results/palas-descriptives.pdf", w = 16, h = 18)
 ```
 
 ## Linear models
@@ -97,11 +90,6 @@ seed0 <- 12345
 coefs <- list()
 intervals <- list()
 draws <- list()
-
-vars <- c("co2ppm", "cn1cm", "vocmgm", "rav", "pm1mugm", "pm25mugm", "pm4mugm", "pm10mugm")
-vars_labels <- c("Carbon dioxide", "Aerosol concentration", "Volatile organic compounds matter mass concentration", "Rebreathed air volume",
-                 expression("Particle matter mass concentration for 1"*mu*"g/m"^3), expression("Particle matter mass concentration for 2.5"*mu*"g/m"^3),
-                 expression("Particle matter mass concentration for 4"*mu*"g/m"^3), expression("Particle matter mass concentration for 10"*mu*"g/m"^3))
 
 for (i in 1:length(vars)) {
   f <- as.formula(paste0(vars[[i]], "~ intervention + school + n_room"))
@@ -116,42 +104,26 @@ for (i in 1:length(vars)) {
   draws[[i]] <- as.data.frame(m)
 }
 
-
-# Table
-tbl_results <- cbind(c("Carbon dioxide", "Aerosol concentration", "Volatile organic compounds matter mass concentration", "Rebreathed air volume", 
-                       "Particle matter mass concentration for $1\\mu$g/m$^3$", "Particle matter mass concentration for $2.5\\mu$g/m$^3$", 
-                       "Particle matter mass concentration for $4\\mu$g/m$^3$", "Particle matter mass concentration for $10\\mu$g/m$^3$"),
-                     do.call(rbind, coefs)[ ,1], do.call(rbind, intervals)[ ,1],
-                     rep("", length(coefs)),
-                     do.call(rbind, coefs)[ ,2], do.call(rbind, intervals)[ ,2])
-
-print.xtable(x = xtable(x = tbl_results),
-             type = "latex",
-             file = "../results/palas-model-results.tex",
-             sanitize.text.function = identity,
-             include.colnames = F,
-             include.rownames = F,
-             only.contents = T,
-             hline.after = NULL)
-
-
 # Figure
 draws_filt <- do.call(rbind, draws) %>%
   mutate(outcome = factor(rep(vars, each = nrow(draws[[i]])), levels = rev(vars))) %>%
   set_names(c("Interceot", "Mask mandate", "Air filter", "School", "InClass", "Sigma", "outcome")) %>%
   select(outcome, `Mask mandate`, `Air filter`) %>%
-  melt("outcome")
+  melt("outcome") %>%
+  mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
+         outcome = factor(outcome, levels = rev(vars_labels_no_units))) 
 
-effects_env <- ggplot(draws_filt, aes(y = outcome, color = variable, x = value)) +
+effects_env <- draws_filt %>%
+  ggplot(aes(y = outcome, color = variable, x = value)) +
   stat_pointinterval(position = position_dodge(width = .5), fill = "white", shape = 21) +
-  labs(color = "Intervention", x = "Estimated effect") +
+  labs(color = "Intervention", x = "Estimated change in z-score") +
   scale_color_manual(values = cbPalette) +
-  scale_y_discrete(labels = function(x) rev(vars_labels)) +
+  scale_y_discrete(labels = scales::parse_format()) +
   geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
   theme(axis.title.y = element_blank(), legend.position = "bottom")
 
 effects_env
 
-save_plot(effects_env, "../results/palas-reg-results.pdf", w = 16, h = 12)
+save_plot(effects_env, "../results/palas-results.pdf", w = 12, h = 11)
 ```

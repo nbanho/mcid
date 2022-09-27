@@ -76,7 +76,9 @@ df_full <- df %>%
   filter(time_min >= 7 * 60) %>%
   filter(time_min <= 17 * 60 + 30) %>%
   select(-time_min) %>%
-  mutate(no_class = ifelse(is.na(no_class), T, F))
+  mutate(no_class = ifelse(is.na(no_class), T, F),
+         class = ifelse(class == "Study (E3f)", "Study (A)",
+                        ifelse(class == "Study (B3d)", "Study (B)", class))) 
 
 
 ggplot(mapping = aes(x = time, y = co2ppm, color = factor(week))) +
@@ -91,6 +93,9 @@ ggplot(mapping = aes(x = time, y = co2ppm, color = factor(week))) +
 
 #### Variable Subset ####
 
-# TODO: select variables for further analysis
+# TODO: select variables for further analysis?
+
+df_full <- df_full %>%
+  select(school, class, date, week, weekday, time, no_school, no_class, maskmandate, airfilter, intervention, everything())
 
 write.csv(df_full, "data-clean/palas.csv", row.names = F)
