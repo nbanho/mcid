@@ -78,7 +78,22 @@ boxplots <- df_daily %>%
 
 boxplots
 
-save_plot(boxplots, "../results/palas-descriptives.pdf", w = 16, h = 18)
+save_plot(boxplots, "../results/palas-supp-descriptives.pdf", w = 16, h = 14)
+
+boxplots_main <- df_daily %>%
+  select(school, intervention, co2ppm, cn1cm, pm1mugm, pm4mugm) %>%
+  melt(c("school", "intervention")) %>%
+  ggplot(aes(color = intervention, y = value, x = variable)) +
+  facet_wrap(~ variable, scales = "free", nrow = 1, labeller = as_labeller(vars_labels, label_parsed)) +
+  geom_boxplot(outlier.size = 1) +
+  scale_color_manual(values = c("black", cbPalette[1:2])) +
+  labs(color = "Intervention", title = "a") +
+  theme_bw2() +
+  theme(legend.position = "bottom", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+boxplots_main
+
+save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 5)
 ```
 
 ## Linear models
@@ -87,35 +102,36 @@ save_plot(boxplots, "../results/palas-descriptives.pdf", w = 16, h = 18)
 seed0 <- 12345
 
 # Results
-coefs <- list()
-intervals <- list()
+# coefs <- list()
+# intervals <- list()
 draws <- list()
 
 for (i in 1:length(vars)) {
   f <- as.formula(paste0(vars[[i]], "~ intervention + school + n_room"))
   m <- stan_glm(f, data = df_daily_within, seed = seed0)
-  coefs[[i]] <- c(tex_sign(round_k(coef(m)["interventionMask mandate"])), tex_sign(round_k(coef(m)["interventionAir filter"])))
-  ci95 <- posterior_interval(m)
-  ci95_mask <- sapply(ci95[row.names(ci95) == "interventionMask mandate"], function(x) tex_sign(round_k(x)))
-  ci95_mask <- paste0("[", ci95_mask[1], "; ", ci95_mask[2], "]")
-  ci95_air <- sapply(ci95[row.names(ci95) == "interventionAir filter"], function(x) tex_sign(round_k(x)))
-  ci95_air <- paste0("[", ci95_air[1], "; ", ci95_air[2], "]")
-  intervals[[i]] <- c(ci95_mask, ci95_air)
+  # coefs[[i]] <- c(tex_sign(round_k(coef(m)["interventionMask mandate"])), tex_sign(round_k(coef(m)["interventionAir filter"])))
+  # ci95 <- posterior_interval(m)
+  # ci95_mask <- sapply(ci95[row.names(ci95) == "interventionMask mandate"], function(x) tex_sign(round_k(x)))
+  # ci95_mask <- paste0("[", ci95_mask[1], "; ", ci95_mask[2], "]")
+  # ci95_air <- sapply(ci95[row.names(ci95) == "interventionAir filter"], function(x) tex_sign(round_k(x)))
+  # ci95_air <- paste0("[", ci95_air[1], "; ", ci95_air[2], "]")
+  # intervals[[i]] <- c(ci95_mask, ci95_air)
   draws[[i]] <- as.data.frame(m)
 }
 
-# Figure
+
 draws_filt <- do.call(rbind, draws) %>%
   mutate(outcome = factor(rep(vars, each = nrow(draws[[i]])), levels = rev(vars))) %>%
   set_names(c("Interceot", "Mask mandate", "Air filter", "School", "InClass", "Sigma", "outcome")) %>%
   select(outcome, `Mask mandate`, `Air filter`) %>%
-  melt("outcome") %>%
-  mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
-         outcome = factor(outcome, levels = rev(vars_labels_no_units))) 
+  melt("outcome") 
 
+# all for supplements
 effects_env <- draws_filt %>%
+  mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
+         outcome = factor(outcome, levels = rev(vars_labels_no_units))) %>%
   ggplot(aes(y = outcome, color = variable, x = value)) +
-  stat_pointinterval(position = position_dodge(width = .5), fill = "white", shape = 21) +
+  stat_pointinterval(position = position_dodge(width = .5), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
   labs(color = "Intervention", x = "Estimated change in z-score") +
   scale_color_manual(values = cbPalette) +
   scale_y_discrete(labels = scales::parse_format()) +
@@ -125,5 +141,23 @@ effects_env <- draws_filt %>%
 
 effects_env
 
-save_plot(effects_env, "../results/palas-results.pdf", w = 12, h = 11)
+save_plot(effects_env, "../results/palas-supp-results.pdf", w = 12, h = 11)
+
+
+# selected for manuscript
+effects_env_main <- draws_filt %>%
+  filter(outcome %in% c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")) %>%
+  mutate(outcome = factor(outcome, levels = (c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")))) %>%
+  ggplot(aes(y = variable, color = variable, x = value)) +
+  stat_pointinterval(fill = "white", shape = 21, .width = c(.5, .8, .95)) +
+  facet_wrap(~ outcome, nrow = 1, labeller = as_labeller(vars_labels_no_units, label_parsed)) +
+  labs(color = "Intervention", x = "Estimated change in z-score", title = "b") +
+  scale_color_manual(values = cbPalette) +
+  geom_vline(aes(xintercept = 0), linetype = "dotted") +
+  theme_bw2() +
+  theme(axis.title.y = element_blank(), legend.position = "bottom", axis.ticks.y = element_blank(), axis.text.y = element_blank())
+
+effects_env_main
+
+save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 5)
 ```

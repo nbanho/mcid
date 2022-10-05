@@ -19,7 +19,7 @@ theme_bw2 <- function () {
     theme(
       axis.text = element_text(size = text_size),
       axis.title = element_text(size = text_size),
-      plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0.5, margin = ggplot2::margin(0, 0, 5, 0))
+      plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0, margin = ggplot2::margin(0, 0, 5, 0))
     )
 }
 
