@@ -269,7 +269,7 @@ prior_pin <- data.frame(
 
 prior_pin_pl <- prior_pin %>%
   ggplot(aes(x = x, y = y)) +
-  stat_lineribbon() +
+  stat_lineribbon(point_interval = "mean_qi") +
   scale_fill_brewer() + 
   labs(x = "s (delay in days)", y = expression(p[IN]*" (probability in %)")) +
   ggtitle("c") +
@@ -360,8 +360,6 @@ meta_dat <- data.frame(folders = list.files("../fitted-models/multiverse", full.
          inc_file = sapply(folders, list.files, pattern = "incidence", full.names = T),
          sample_file = sapply(folders, list.files, pattern = "sample", full.names = T),
          results_file = sapply(folders, list.files, pattern = "estimation_results", full.names = T))
-
-a=sapply(meta_dat$folders, list.files, pattern = "estimation")
 ```
 
 ### Estimation results
@@ -532,9 +530,9 @@ new_inc <- meta_dat %>%
   filter(variable == "Infections") 
 
 new_inc_mean <- new_inc %>%
-  select(class, day, value) %>%
+  filter(.width == .95) %>%
   group_by(class, day) %>%
-  mean_qi() %>%
+  summarize(across(c(value, .lower, .upper), median)) %>%
   ungroup()
 
 est_I_pl <- ggplot(new_inc_mean, aes(x = day)) +

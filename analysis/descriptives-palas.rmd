@@ -131,7 +131,7 @@ effects_env <- draws_filt %>%
   mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
          outcome = factor(outcome, levels = rev(vars_labels_no_units))) %>%
   ggplot(aes(y = outcome, color = variable, x = value)) +
-  stat_pointinterval(position = position_dodge(width = .5), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
+  stat_pointinterval(point_interval = "mean_qi", position = position_dodge(width = .5), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
   labs(color = "Intervention", x = "Estimated change in z-score") +
   scale_color_manual(values = cbPalette) +
   scale_y_discrete(labels = scales::parse_format()) +
@@ -149,7 +149,7 @@ effects_env_main <- draws_filt %>%
   filter(outcome %in% c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")) %>%
   mutate(outcome = factor(outcome, levels = (c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")))) %>%
   ggplot(aes(y = variable, color = variable, x = value)) +
-  stat_pointinterval(fill = "white", shape = 21, .width = c(.5, .8, .95)) +
+  stat_pointinterval(point_interval = "mean_qi", fill = "white", shape = 21, .width = c(.5, .8, .95)) +
   facet_wrap(~ outcome, nrow = 1, labeller = as_labeller(vars_labels_no_units, label_parsed)) +
   labs(color = "Intervention", x = "Estimated change in z-score", title = "b") +
   scale_color_manual(values = cbPalette) +

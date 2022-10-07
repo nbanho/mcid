@@ -207,9 +207,13 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
          airfilter = ifelse(school == "School 1" & week >= 11, 1, 
                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
          airfilter = ifelse(class == "Control", 0, airfilter),
+         weekday = weekdays(date),
+         weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
+         #maskmandate = ifelse(weekend == 1, 0, maskmandate),
+         #airfilter = ifelse(weekend == 1, 0, airfilter),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T, 
-                            ifelse(school == "School 2" & week %in% c(6,12), T, F))) %>%
-  mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
+                            ifelse(school == "School 2" & week %in% c(6,12), T, F)),
+         intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
          intervention = factor(intervention, levels = c("Mask mandate", "None", "Air filter")))  %>%
   left_join(df_absent) %>%
   left_join(df_tot) %>%
@@ -221,9 +225,7 @@ df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start),
          new_recovered_from_confirmed = recovered_from_confirmed,
          new_recovered_from_symptomatic = recovered_from_symptomatic,
          new_recovered_from_unknown = recovered_from_unknown) %>%
-  mutate(weekday = weekdays(date),
-         weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
-         class = ifelse(class == "Study (E3f)", "Study (A)", 
+  mutate(class = ifelse(class == "Study (E3f)", "Study (A)", 
                         ifelse(class == "Study (B3d)", "Study (B)", class))) %>%
   select(school, is_study_class, class, date, week, weekday, weekend, 
          intervention, airfilter, maskmandate, no_school,

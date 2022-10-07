@@ -38,10 +38,9 @@ PM <- left_join(palas %>%
 #' - vol: volume of the room
 
 # assumptions see analysis plan for tb transmission risk
-Co <- 410 # TODO: alternatively could use morning level (i.e. level when noone was in the room)
-Ca <- 39000
-p <- 8
-V <- 0.13
+Co <- 420 # 405 - 430 in the nearest area last year (https://gml.noaa.gov/aftp/data/trace_gases/co2/flask/surface/txt/co2_hpb_surface-flask_1_ccgg_month.txt)
+Ca <- 39000 # Rundick and Milton, and Emmerich et al
+p <- 8 # Emmeric et al
 
 PM <- PM %>%
   mutate(f = (co2ppm - Co) / Ca,

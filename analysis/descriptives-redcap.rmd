@@ -227,6 +227,17 @@ cases <- df %>%
             `Suspected (unknown symptoms)` = sum(suspected_unknown)) %>%
   ungroup() 
 
+cases_tot <- cases %>%
+  group_by(school) %>%
+  summarise(across(-study_week, sum)) %>%
+  ungroup() %>%
+  mutate(study_week = 8)
+
+cases <- rbind(cases, cases_tot) %>%
+  group_by(school) %>%
+  arrange(study_week) %>%
+  ungroup()
+
 absences <- df %>%
   filter(class != "Control") %>%
   filter(!(weekday %in% c("Saturday", "Sunday"))) %>%
@@ -241,13 +252,28 @@ absences <- df %>%
   filter(study_week > 0) %>% # ignore the Friday in the first week where there were just 1 absence)
   mutate(`No. of students` = round((n_class - n_tot_absent) / 5)) %>%
   select(school, study_week, `No. of students`)
+
+absences_mean <- absences %>%
+  group_by(school) %>%
+  summarise(across(-study_week, ~ round(mean(.x), 0))) %>%
+  ungroup() %>%
+  mutate(study_week = 8)
+
+absences <- rbind(absences, absences_mean) %>%
+  group_by(school) %>%
+  arrange(study_week) %>%
+  ungroup()
   
 
-cases_air <- data.frame(
-  school = c(rep("School 1", 7), rep("School 2", 7)),
-  study_week = c(1:7, 1:7),
-  Air = c(0, 0, 0, 2, 0, 0, 2, 
-          1, 3, 0, 0, 1, 0, 0)
+cases_air <- tibble(
+  school = c(rep("School 1", 8), rep("School 2", 8)),
+  study_week = c(1:8, 1:8),
+  `Air samples` = c(0, 0, 0, 2, 0, 0, 2, 5, 
+                    1, 3, 0, 0, 1, 0, 0, 4),
+  `Air filter 1` = c(rep("", 7), 4, 
+                   rep("", 7), 2),
+  `Air filter 2` = c(rep("", 7), 3, 
+                   rep("", 7), 0)
 )
 
 cases_mol <- left_join(left_join(absences, cases), cases_air) 
