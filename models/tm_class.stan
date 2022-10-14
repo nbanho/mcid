@@ -35,12 +35,11 @@ transformed data {
 
 parameters {
   real<lower=0> invphi_N; // inverse over-dispersion parameter for negative binomial distr. of new cases
-  real alpha_0;
-  real alpha_l[L]; // inv_logit(alpha) daily proportion of susceptible getting infected in school
+  real alpha[L]; // inv_logit(alpha) daily proportion of susceptible getting infected in school
   real omega; // change in daily infections during vacation
   real theta_M; // change in daily infections during mask mandates
   real theta_A; // change in daily infections during air filters
-  real<lower=0> tau[2]; // variation between classes 
+  real<lower=0> tau; // variation between classes 
   vector[L] theta_l; // class-specific effect of interventions
   real gamma[2]; // effects of control variables
   real mu_p_in; // log mean in p_IN ~ Lognormal(mu, sigma)
@@ -50,7 +49,6 @@ parameters {
 
 transformed parameters {
   real<lower=0> phi_N = inv_square(invphi_N); // over-dispersion parameter for negative binomial distr. of new cases
-  real alpha[L];
   real beta[L]; // inv_logit(alpha) daily proportion of susceptible getting infected outside school
   matrix<lower=0>[DS,L] mu_new_cases; // expected number of new cases
   matrix<lower=0>[DS,L] mu_new_infections; // expected number of new infections
@@ -61,7 +59,6 @@ transformed parameters {
   vector<lower=0>[DS] p_in; // probability distribution for incubation period
   
   for (l in 1:L) {
-    alpha[l] = alpha_0 + alpha_l[l];
     beta[l] = alpha[l] + omega;
   }
   
@@ -101,15 +98,14 @@ model {
   // priors
   invphi_N ~ normal(0., 1.);
   alpha ~ student_t(3., -4.1, 1.6);
-  alpha_l ~ normal(0., tau[1]);
   omega ~ normal(log(0.7), .2);
   mu_p_in ~ normal(p_in_mu_m, p_in_mu_s);
   sigma_p_in ~ normal(p_in_sigma_m, p_in_sigma_s);
   alpha ~ student_t(7., 0., 2.5);
   theta_M ~ student_t(7., 0., 2.5);
   theta_A ~ student_t(7., 0., 1.);
-  tau ~ normal(0., 1.);
-  theta_l ~ normal(0., tau[2]);
+  tau ~ student_t(5., 0., 1.);
+  theta_l ~ normal(0., tau);
   gamma ~ student_t(7., 0., 2.5);
 
   // likelihood and time-varying priors
