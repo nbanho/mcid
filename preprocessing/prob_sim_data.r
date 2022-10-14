@@ -1,6 +1,7 @@
 #### Libraries ####
 
 library(tidyverse)
+library(reshape2)
 library(lubridate)
 
 source("utils/plotting.r")
@@ -54,7 +55,13 @@ full_df <- data.frame(school_class = rep(col_order, each = length(dates)),
          prop_absences = ifelse(no_school, 0, prop_absences)) %>%
   select(school, class, school_class, date, week, weekend, day, weekday, 
          no_school, intervention, maskmandate, airfilter,
-         n_absent, n_class, prop_absences, median_R_mean) 
+         n_absent, n_class, prop_absences, median_R_mean) %>%
+  group_by(school, class) %>%
+  arrange(date) %>%
+  # make last weekend from vacation count towards study period
+  mutate(no_school = ifelse(!lead(no_school, n = 2) & weekend == 1, F, no_school),
+         weekend = ifelse(no_school, 0, weekend)) %>%
+  ungroup()
 
 saveRDS(full_df, "data-clean/redcap-full-range.rds")
 
@@ -181,6 +188,62 @@ rnorm.lim <- function(l, u, ...) {
 }
 
 
+# prior for alpha
+S <- round(exp(p_in_mu_m + p_in_sigma_m^2 / 2)) * 2
+Tdays <- 7 * 7 + S
+#' (1 - x) ^ Tdays = mean_share
+#' Tdays * log 1-x = log (mean_share)
+#' log 1-x = log (mean_share) / Tdays
+#' x = 1 - exp(log (mean_share) / Tdays)
+
+share_of_susecptibles <- exc_df %>%
+  mutate(share_end = 1 - (suspected * k + confirmed) / pop,
+         daily_share = 1 - exp(log(share_end) / Tdays),
+         logit_daily_share = logit(daily_share)) %>%
+  select(school_class, mu, share_end, daily_share, logit_daily_share) 
+
+
+mean_share <- mean(share_of_susecptibles$share_end)
+mean_share
+
+mean_daily_share = 1 - exp(log(mean_share) / Tdays)
+logit(mean_daily_share)
+
+daily_share_pl <- share_of_susecptibles %>%
+  ggplot(aes(x = daily_share)) +
+  geom_density() +
+  geom_vline(aes(xintercept = median(share_of_susecptibles$daily_share)), linetype = "dotted", color = "blue") + 
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  scale_x_continuous(limits = c(0, .1), labels = function(x) x * 100, expand = c(0,0)) +
+  labs(x = "Daily prop. of susceptibles\ngetting infected in school", y = "Density", title = "a") +
+  theme_bw2() +
+  theme(plot.title = element_text(hjust = 0))
+
+daily_share_pl
+
+prior_logit_share <- data.frame(x = seq(-8, 0, .1)) %>%
+  mutate(y = LaplacesDemon::dst(x, mu = -4.1, sigma = 1.6, nu = 3))
+
+logit_daily_share_pl <- share_of_susecptibles %>%
+  ggplot(aes(x = logit_daily_share)) +
+  geom_density() +
+  annotate("text", x = -2.5, y = 0.4, label = "Data", color = "black", size = 8 / cm(1)) +
+  geom_line(data = prior_logit_share, mapping = aes(x = x, y = y), color = "red") +
+  annotate("text", x = -1.5, y = 0.15, label = "Prior", color = "red", size = 8 / cm(1)) +
+  geom_vline(aes(xintercept = median(share_of_susecptibles$logit_daily_share)), linetype = "dotted", color = "blue") + 
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  scale_x_continuous(expand = c(0,0)) +
+  labs(x = "Logit of daily prop. of susceptibles\ngetting infected in school", y = "Density", title = "b") +
+  theme_bw2() +
+  theme(plot.title = element_text(hjust = 0), plot.margin = unit(c(5.5,9,5.5,5.5), "pt"))
+
+logit_daily_share_pl
+
+comb_prior_pl <- arrangeGrob(daily_share_pl, logit_daily_share_pl, widths = c(5, 5), ncol = 2)
+
+ggsave(plot = comb_prior_pl, filename = "results/redcap-supp-prior-alpha.pdf", width = 10 / cm(1), height = 5 / cm(1))
+
+
 #### Simulation ####
 
 # cases with and without missing symptom onset
@@ -209,6 +272,7 @@ for (i in 1:N) {
   samples <- list()
   samples_p <- c()
   for (cl in col_order) {
+    set.seed(i)
     susp_cl <- filter(sample_suspected_df, school_class == cl)
     distr_pars_cl <- filter(smpl_distr_pars, school_class == cl)
     samples_p[cl] <- rnorm.lim(distr_pars_cl$lower, distr_pars_cl$upper, distr_pars_cl$mu, distr_pars_cl$sigma)
@@ -235,62 +299,55 @@ for (i in 1:N) {
   
   saveRDS(modeling_df, paste0(path_i, "sample-modeling-df.rds"))
   
-  # combine with original data
-  df_smpl <- df %>%
-    left_join(samples) %>%
-    mutate(new_suspected = ifelse(is.na(new_suspected), 0, new_suspected),
-           new_cases = new_confirmed + new_suspected) %>%
-    group_by(class) %>%
-    arrange(day) %>%
-    mutate(cum_cases = cumsum(new_cases)) %>%
-    ungroup() 
-  
-  saveRDS(df_smpl, paste0(path_i, "sample.rds"))
-  
   # create stan data
+  # TODO: count weekend at the beginning and in the middle of vacation as normal (not to model), in contrast to weekend at the end of vacation
   sDF <- list(
-    L = 5,
-    D = nrow(df_smpl) / 5,
+    L = J,
+    D = nrow(modeling_df) / 5,
     S = round(exp(p_in_mu_m + p_in_sigma_m^2 / 2)) * 2,
-    no_school = df_smpl %>%
-      mutate(no_school = ifelse(week == 12 & school == "School 2", 0, no_school),
-             no_school = ifelse(weekend == 1 | no_school, 1, 0)) %>%
-      select(class, day, no_school) %>%
-      dcast(day ~ class) %>%
+    no_school = modeling_df %>%
+      select(school_class, day, no_school) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       mutate_all(function(x) ifelse(x, 1, 0)) %>%
       as.matrix(),
-    no_modeling_day = df_smpl %>%
-      mutate(no_school = ifelse(weekend == 1 | no_school, 1, 0)) %>%
-      select(class, day, no_school) %>%
-      dcast(day ~ class) %>%
+    weekend = modeling_df %>%
+      select(school_class, day, weekend) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       mutate_all(function(x) ifelse(x, 1, 0)) %>%
       as.matrix(),
-    new_cases = df_smpl %>%
-      select(class, day, new_cases) %>%
-      dcast(day ~ class) %>%
+    new_cases = modeling_df %>%
+      select(school_class, day, new_cases) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       as.matrix(),
-    population = smpl_distr_pars[match(smpl_distr_pars$class, col_order),"pop"]$pop,
-    prop_absences = df_smpl %>%
-      select(class, day, prop_absences) %>%
-      dcast(day ~ class) %>%
+    population = absences_df %>%
+      group_by(school_class) %>%
+      slice(1) %>%
+      ungroup() %>%
+      mutate(school_class = factor(school_class, levels = col_order)) %>%
+      arrange(school_class) %>%
+      select(n_class) %>%
+      unlist(),
+    prop_absences = modeling_df %>%
+      select(school_class, day, prop_absences) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       as.matrix(),
-    medianRest_mean = df_smpl %>%
-      select(class, day, median_R_mean) %>%
-      dcast(day ~ class) %>%
+    medianRest_mean = modeling_df %>%
+      select(school_class, day, median_R_mean) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       as.matrix(),
-    maskmandate = df_smpl %>%
-      select(class, day, maskmandate) %>%
-      dcast(day ~ class) %>%
+    maskmandate = modeling_df %>%
+      select(school_class, day, maskmandate) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       as.matrix(),
-    airfilter = df_smpl %>%
-      select(class, day, airfilter) %>%
-      dcast(day ~ class) %>%
+    airfilter = modeling_df %>%
+      select(school_class, day, airfilter) %>%
+      dcast(day ~ school_class) %>%
       select(all_of(col_order)) %>%
       as.matrix(),
     p_in_mu_m = p_in_mu_m,
@@ -300,16 +357,18 @@ for (i in 1:N) {
   )
   
   # add data for seeding phase
-  seed_date <- seq(df_smpl$date[1] - days(sDF$S), df_smpl$date[1] - days(1), by = "d")
+  seed_date <- seq(min(modeling_df$date) - days(sDF$S), min(modeling_df$date) - days(1), by = "d")
+  sDF$no_school <- rbind(matrix(rep(rep(0, length(seed_date)), 5), nrow = sDF$S, ncol = sDF$L), sDF$no_school)
   seed_weekend <- ifelse(weekdays(seed_date) %in% c("Saturday", "Sunday"), 1, 0)
-  sDF$no_school <- rbind(matrix(rep(seed_weekend, 5), nrow = sDF$S, ncol = sDF$L), sDF$no_school)
-  sDF$no_modeling_day <- rbind(matrix(rep(seed_weekend, 5), nrow = sDF$S, ncol = sDF$L), sDF$no_modeling_day)
+  sDF$weekend <- rbind(matrix(rep(seed_weekend, 5), nrow = sDF$S, ncol = sDF$L), sDF$weekend)
   sDF$maskmandate <- rbind(matrix(1, nrow = sDF$S, ncol = sDF$L), sDF$maskmandate)
   sDF$airfilter <- rbind(matrix(0, nrow = sDF$S, ncol = sDF$L), sDF$airfilter)
   r_est_seed <- r_est %>% 
-    filter(between(date, min(df_smpl$date) - sDF$S, min(df_smpl$date) - 1)) %>% 
+    filter(between(date, min(modeling_df$date) - sDF$S, min(modeling_df$date) - 1)) %>% 
     arrange(date) %>%
     select(median_R_mean) %>%
     as.matrix()
   sDF$medianRest_mean <- rbind(matrix(rep(r_est_seed, sDF$L), ncol = sDF$L), sDF$medianRest_mean)
+  
+  saveRDS(sDF, paste0(path_i, "sample-modeling-stan-datalist.rds"))
 }

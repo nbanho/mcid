@@ -31,20 +31,7 @@ col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", "
 names(col_order) <- 1:5
 J <- length(col_order)
 
-r_est <- read_csv("../data-clean/r-estimates.csv")
-
-df <- read_csv("../data-clean/redcap.csv") %>%
-  filter(!no_school) %>%
-  mutate(new_cases = new_confirmed + new_symptomatic + new_unknown,
-         cum_cases = cum_confirmed + cum_symptomatic + cum_unknown,
-         prop_absences = n_tot_absent / n_class) %>%
-  rename(absences = n_tot_absent) %>%
-  group_by(school, class) %>%
-  arrange(date) %>%
-  mutate(day = 1:n()) %>%
-  ungroup() %>%
-  left_join(r_est)  %>%
-  mutate(class = factor(paste(school, class), levels = col_order))
+df <- read.csv("../data-clean/redcap-cases.csv")
 ```
 
 ```{r}
@@ -162,71 +149,7 @@ simDat %>%
   geom_line()
 ```
 
-## Prior
-
-### Suspected cases
-
-Multiplier:
-Minimum = pmax(Total / Population, 1) 
---> corresponds to all possible suspected cases being actual cases: Min = pmin(population - confirmed, suspected)
---> Multiplier = Total / (Min + Confirmed)
-
-Maximum = Total / Confirmed 
---> corresponds to no suspected cases being actual cases: 0
---> Multiplier = Total / (Max + Confirmed)
-
-
-```{r}
-# excessive cases
-total_cases <-  df %>%
-  select(class, n_class, cum_confirmed, cum_symptomatic, cum_unknown) %>%
-  group_by(class) %>%
-  summarize(all = max(cum_confirmed + cum_symptomatic + cum_unknown),
-            confirmed = max(cum_confirmed),
-            suspected = max(cum_symptomatic + cum_unknown),
-            pop = max(n_class)) %>%
-  ungroup() 
-
-pnorm.lim <- function(l, u, ...) {
-  k <- seq(l, u, .01)
-  data.frame(k=k, p=sapply(k, dnorm, ...))
-}
-
-exc_df <- total_cases %>%
-  mutate(upper = pmin(pop - confirmed, suspected),
-         lower = 0) %>%
-  rowwise() %>%
-  mutate(mu = (upper + lower) / 2,
-         sigma = (upper - lower) / (2*qnorm(0.95)),
-         draws = list(pnorm.lim(lower, upper, mu, sigma))) %>%
-  unnest() %>%
-  mutate(k = k / suspected,
-         mu = mu / suspected) 
-
-exc_df_limits <- exc_df %>%
-  group_by(class) %>%
-  filter(k == min(k) | k == max(k)) %>%
-  ungroup()
-
-exc_df_pl <- exc_df %>%
-  ggplot(aes(ymin = -Inf, ymax = p, x = k)) +
-  facet_wrap(~ class, nrow = 1) +
-  geom_ribbon(alpha = .1) +
-  geom_line(aes(y = p)) +
-  geom_segment(data = exc_df_limits, mapping = aes(x = k, xend = k, y = 0, yend = p), linetype = "dashed") +
-  geom_vline(aes(xintercept = mu), linetype = "dotted", color = "blue") +
-  scale_x_continuous(expand = expansion(add = c(0,0)), limits = c(0,1), labels = function(x) x * 100) +
-  scale_y_continuous(expand = expansion(add = c(0., .01)), limits = c(0, NA)) +
-  labs(x = "Proportion of suspected cases being actual cases of COVID-19 (%)", 
-       y = "Density") +
-  theme_bw2() +
-  theme(plot.title = element_text(hjust = 0), panel.spacing = unit(1, "lines"),
-        plot.margin = unit(c(0.1, .5, 0.1, 0.1), "cm"))
-
-exc_df_pl
-
-save_plot(exc_df_pl, pdf_file = "../results/redcap-prior-excessive-cases.pdf", w = 16, h = 4)
-```
+## Additional Priors
 
 ### Incubation period
 
@@ -292,61 +215,149 @@ ggsave(plot = comb_prior_pin_pl, filename = "../results/redcap-supp-prior-pin.pd
 S <- round(exp(p_in_mu_m + p_in_sigma_m^2 / 2)) * 2
 ```
 
+## Test model
 
-### Alpha
+### Model sample
 
 ```{r}
-Tdays <- nrow(df) / 5 + S
-#' (1 - x) ^ Tdays = mean_share
-#' Tdays * log 1-x = log (mean_share)
-#' log 1-x = log (mean_share) / Tdays
-#' x = 1 - exp(log (mean_share) / Tdays)
+# Data Sample
+df_smpl <- readRDS("../fitted-models/multiverse/1/sample-modeling-df.rds")
+sDF_smpl <- readRDS("../fitted-models/multiverse/1/sample-modeling-stan-datalist.rds")
 
-share_of_susecptibles <- exc_df %>%
-  mutate(share_end = 1 - (suspected * k + confirmed) / pop,
-         daily_share = 1 - exp(log(share_end) / Tdays),
-         logit_daily_share = logit(daily_share)) %>%
-  select(class, mu, share_end, daily_share, logit_daily_share) 
+# Model
+tm <- cmdstan_model("../models/tm_class.stan", cpp_options = list(stan_threads = T))
+
+tmFit <- tm$sample(
+  data = sDF_smpl,
+  seed = 12345,
+  chains = 4,
+  iter_warmup = 1e3,
+  iter_sampling = 1e3,
+  parallel_chains = 4,
+  threads_per_chain = 2,
+  refresh = 200
+)
   
+tmFit$summary(c("phi_N", "alpha", "omega", "beta", "mu_p_in", "sigma_p_in", "theta_M", "tau", "theta_l", "theta_A", "gamma")) 
+```
+### New infections
 
-mean_share <- mean(share_of_susecptibles$share_end)
-mean_share
+```{r}
+# new infections
+new_I <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_new_infections") %>%
+  rename(day = row,
+         class = col) %>%
+  mutate(class = recode(class, !!! col_order),
+         class = factor(class, levels = col_order),
+         day = day - sDF_smpl$S) %>%
+  filter(day >= 1) %>%
+  select(-draw) 
 
-mean_daily_share = 1 - exp(log(mean_share) / Tdays)
-logit(mean_daily_share)
+new_I %>%
+  ggplot(aes(x = day, y = value)) +
+  facet_wrap(~class) +
+  stat_lineribbon() +
+  scale_fill_brewer()
+```
 
-daily_share_pl <- share_of_susecptibles %>%
-  ggplot(aes(x = daily_share)) +
-  geom_density() +
-  geom_vline(aes(xintercept = median(share_of_susecptibles$daily_share)), linetype = "dotted", color = "blue") + 
-  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
-  scale_x_continuous(limits = c(0, .1), labels = function(x) x * 100, expand = c(0,0)) +
-  labs(x = "Daily proportion of\nsusceptibles getting infected", y = "Density", title = "a") +
-  theme_bw2() +
-  theme(plot.title = element_text(hjust = 0))
+### Cumulative incidence
 
-daily_share_pl
+```{r}
+cum_I <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_cum_infections") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S) %>%
+  mutate(variable = "Cumulative infections")
+cum_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_cum_cases") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S) %>%
+  mutate(variable = "Cumulative cases")
+susceptibles <- tidy_draws.CmdStanMCMC_mat(tmFit, "susceptibles") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S) %>%
+  mutate(variable = "Susceptibles")
 
-prior_logit_share <- data.frame(x = seq(-8, 0, .1)) %>%
-  mutate(y = LaplacesDemon::dst(x, mu = -4, sigma = 1.5, nu = 3))
-  
-logit_daily_share_pl <- share_of_susecptibles %>%
-  ggplot(aes(x = logit_daily_share)) +
-  geom_density() +
-  geom_line(data = prior_logit_share, mapping = aes(x = x, y = y), color = "red") +
-  annotate("text", x = -1.5, y = 0.15, label = "Prior", color = "red", size = 8 / cm(1)) +
-  geom_vline(aes(xintercept = median(share_of_susecptibles$logit_daily_share)), linetype = "dotted", color = "blue") + 
-  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
-  scale_x_continuous(expand = c(0,0)) +
-  labs(x = "Logit of the daily proportion of\nsusceptibles getting infected", y = "Density", title = "b") +
-  theme_bw2() +
-  theme(plot.title = element_text(hjust = 0))
+estimated_inc <- rbind(cum_I, cum_N, susceptibles)
 
-logit_daily_share_pl
+estimated_inc %>%
+  ggplot(aes(x = day, y = value, fill = variable, color = variable)) +
+  facet_wrap(~ school_class) +
+  stat_lineribbon(alpha = .2, .width = .95) 
+```
 
-comb_prior_pl <- arrangeGrob(daily_share_pl, logit_daily_share_pl, widths = c(5, 5), ncol = 2)
+### Avoided infections
 
-ggsave(plot = comb_prior_pl, filename = "../results/redcap-supp-prior-alpha.pdf", width = 10 / cm(1), height = 5 / cm(1))
+```{r}
+av_inf_masks <- tidy_draws.CmdStanMCMC_mat(tmFit, "avoided_infections_Masks") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S,
+         variable = "Mask mandate") 
+
+av_inf_air <- tidy_draws.CmdStanMCMC_mat(tmFit, "avoided_infections_Air") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S,
+         variable = "Air filter")
+
+rbind(av_inf_masks, av_inf_air) %>%
+  group_by(school_class, variable, day) %>%
+  mutate(.draw = 1:n()) %>%
+  ungroup() %>%
+  group_by(variable, .draw) %>%
+  summarise(value = -sum(value)) %>%
+  ungroup() %>%
+  ggplot(aes(x = value, y = variable)) +
+  stat_interval() +
+  scale_color_brewer()
+```
+
+
+### Coverage
+
+```{r}
+# new cases
+new_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_new_cases") %>%
+  rename(day = row,
+         school_class = col) %>%
+  mutate(school_class = recode(school_class, !!! col_order),
+         school_class = factor(school_class, levels = col_order),
+         day = day - sDF_smpl$S) 
+
+new_N_week <- new_N %>%
+  filter(day > 0) %>%
+  left_join(df_smpl %>% select(school_class, week, day, no_school, intervention)) %>%
+  filter(!no_school) %>%
+  group_by(school_class, intervention, draw) %>%
+  summarize(value = sum(value)) %>%
+  ungroup() %>%
+  group_by() %>%
+  mutate(intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter")))
+
+new_N_week %>%
+  ggplot(aes(y = intervention, x = value)) +
+  facet_wrap(~ school_class) + 
+  stat_interval() +
+  stat_pointinterval(point_interval = "mean_qi", fill = "white", shape = 21, .width = NA) +
+  geom_point(data = df_smpl %>%
+              filter(!no_school) %>%
+              group_by(school_class, intervention) %>%
+              summarise(value = sum(new_cases)) %>%
+              ungroup(),
+            color = "red", size = 2, shape = 4) +
+  scale_color_brewer() 
 ```
 
 
