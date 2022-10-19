@@ -118,87 +118,87 @@ model {
   }
 }
 
-// generated quantities {
-//   // infections
-//   matrix[DS,L] susceptibles_base = rep_matrix(0., DS, L);
-//   matrix[DS,L] logit_prop_infections_base = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_new_infections_base = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_cum_infections_base = rep_matrix(0., DS, L);
-//   // infections without masks
-//   matrix[DS,L] susceptibles_Masks = rep_matrix(0., DS, L);
-//   matrix[DS,L] logit_prop_infections_Masks = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_new_infections_Masks = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_cum_infections_Masks = rep_matrix(0., DS, L);
-//   matrix[DS,L] avoided_infections_Masks = rep_matrix(0., DS, L);
-//   // infections without airfilter
-//   matrix[DS,L] susceptibles_Air = rep_matrix(0., DS, L);
-//   matrix[DS,L] logit_prop_infections_Air = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_new_infections_Air = rep_matrix(0., DS, L);
-//   matrix[DS,L] mu_cum_infections_Air = rep_matrix(0., DS, L);
-//   matrix[DS,L] avoided_infections_Air = rep_matrix(0., DS, L);
-// 
-//   // log-likelihood
-//   matrix[D,L] log_lik;
-//   for (l in 1:L) {
-//     for (d in 1:D) {
-//       log_lik[d,l] = neg_binomial_2_lpmf(new_cases[d,l] | mu_new_cases[S+d,l], phi_N);
-//     }
-//     susceptibles_base[1,l] = population[l];
-//     logit_prop_infections_base[1,l] = beta + omega * weekend[1,l] + (theta_M + theta_l[l]) * maskmandate[1,l] + theta_A * airfilter[1,l] + gamma[2] * medianRest_mean[1,l];
-//     mu_new_infections_base[1,l] = susceptibles_base[1,l] * inv_logit(logit_prop_infections_base[1,l]);
-//     mu_cum_infections_base[1,l] = mu_new_infections_base[1,l];
-// 
-//     susceptibles_Masks[1,l] = population[l];
-//     logit_prop_infections_Masks[1,l] = beta + omega * weekend[1,l] + theta_A * airfilter[1,l] + gamma[2] * medianRest_mean[1,l];
-//     mu_new_infections_Masks[1,l] = susceptibles_Masks[1,l] * inv_logit(logit_prop_infections_Masks[1,l]);
-//     mu_cum_infections_Masks[1,l] = mu_new_infections_Masks[1,l];
-// 
-//     susceptibles_Air[1,l] = population[l];
-//     logit_prop_infections_Air[1,l] = beta + omega * weekend[1,l] + (theta_M + theta_l[l]) * maskmandate[1,l] + gamma[2] * medianRest_mean[1,l];
-//     mu_new_infections_Air[1,l] = susceptibles_Air[1,l] * inv_logit(logit_prop_infections_Air[1,l]);
-//     mu_cum_infections_Air[1,l] = mu_new_infections_Air[1,l];
-// 
-//     avoided_infections_Air[1,l] = mu_new_infections_base[1,l] - mu_new_infections_Air[1,l];
-//     avoided_infections_Masks[1,l] = mu_new_infections_base[1,l] - mu_new_infections_Masks[1,l];
-// 
-//     for (d in 2:S) {
-//       susceptibles_base[d,l] = population[l] - mu_cum_infections_base[d-1,l];
-//       logit_prop_infections_base[d,l] = beta + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + theta_A * airfilter[d,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_base[d,l] = susceptibles_base[d,l] * inv_logit(logit_prop_infections_base[d,l]);
-//       mu_cum_infections_base[d,l] = mu_cum_infections_base[d-1,l] + mu_new_infections_base[d,l];
-// 
-//       susceptibles_Masks[d,l] = population[l] - mu_cum_infections_Masks[d-1,l];
-//       logit_prop_infections_Masks[d,l] = beta + omega * weekend[d,l] + theta_A * airfilter[d,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_Masks[d,l] = susceptibles_Masks[d,l] * inv_logit(logit_prop_infections_Masks[d,l]);
-//       mu_cum_infections_Masks[d,l] = mu_cum_infections_Masks[d-1,l] + mu_new_infections_Masks[d,l];
-// 
-//       susceptibles_Air[d,l] = population[l] - mu_cum_infections_Air[d-1,l];
-//       logit_prop_infections_Air[d,l] = beta + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_Air[d,l] = susceptibles_Air[d,l] * inv_logit(logit_prop_infections_Air[d,l]);
-//       mu_cum_infections_Air[d,l] = mu_cum_infections_Air[d-1,l] + mu_new_infections_Air[d,l];
-// 
-//       avoided_infections_Air[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Air[d,l];
-//       avoided_infections_Masks[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Masks[d,l];
-//     }
-//     
-//     for (d in (S+1):DS) {
-//       susceptibles_base[d,l] = population[l] - mu_cum_infections_base[d-1,l];
-//       logit_prop_infections_base[d,l] = beta + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + theta_A * airfilter[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_base[d,l] = susceptibles_base[d,l] * inv_logit(logit_prop_infections_base[d,l]);
-//       mu_cum_infections_base[d,l] = mu_cum_infections_base[d-1,l] + mu_new_infections_base[d,l];
-// 
-//       susceptibles_Masks[d,l] = population[l] - mu_cum_infections_Masks[d-1,l];
-//       logit_prop_infections_Masks[d,l] = beta + omega * weekend[d,l] + theta_A * airfilter[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_Masks[d,l] = susceptibles_Masks[d,l] * inv_logit(logit_prop_infections_Masks[d,l]);
-//       mu_cum_infections_Masks[d,l] = mu_cum_infections_Masks[d-1,l] + mu_new_infections_Masks[d,l];
-// 
-//       susceptibles_Air[d,l] = population[l] - mu_cum_infections_Air[d-1,l];
-//       logit_prop_infections_Air[d,l] = beta + omega * weekend[d,l] + theta_M * maskmandate[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
-//       mu_new_infections_Air[d,l] = susceptibles_Air[d,l] * inv_logit(logit_prop_infections_Air[d,l]);
-//       mu_cum_infections_Air[d,l] = mu_cum_infections_Air[d-1,l] + mu_new_infections_Air[d,l];
-// 
-//       avoided_infections_Air[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Air[d,l];
-//       avoided_infections_Masks[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Masks[d,l];
-//     }
-//   }
-// }
+generated quantities {
+  // infections
+  matrix[DS,L] susceptibles_base = rep_matrix(0., DS, L);
+  matrix[DS,L] logit_prop_infections_base = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_new_infections_base = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_cum_infections_base = rep_matrix(0., DS, L);
+  // infections without masks
+  matrix[DS,L] susceptibles_Masks = rep_matrix(0., DS, L);
+  matrix[DS,L] logit_prop_infections_Masks = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_new_infections_Masks = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_cum_infections_Masks = rep_matrix(0., DS, L);
+  matrix[DS,L] avoided_infections_Masks = rep_matrix(0., DS, L);
+  // infections without airfilter
+  matrix[DS,L] susceptibles_Air = rep_matrix(0., DS, L);
+  matrix[DS,L] logit_prop_infections_Air = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_new_infections_Air = rep_matrix(0., DS, L);
+  matrix[DS,L] mu_cum_infections_Air = rep_matrix(0., DS, L);
+  matrix[DS,L] avoided_infections_Air = rep_matrix(0., DS, L);
+
+  // log-likelihood
+  matrix[D,L] log_lik;
+  for (l in 1:L) {
+    for (d in 1:D) {
+      log_lik[d,l] = neg_binomial_2_lpmf(new_cases[d,l] | mu_new_cases[S+d,l], phi_N);
+    }
+    susceptibles_base[1,l] = population[l];
+    logit_prop_infections_base[1,l] = beta[l] + omega * weekend[1,l] + (theta_M + theta_l[l]) * maskmandate[1,l] + theta_A * airfilter[1,l] + gamma[2] * medianRest_mean[1,l];
+    mu_new_infections_base[1,l] = susceptibles_base[1,l] * inv_logit(logit_prop_infections_base[1,l]);
+    mu_cum_infections_base[1,l] = mu_new_infections_base[1,l];
+
+    susceptibles_Masks[1,l] = population[l];
+    logit_prop_infections_Masks[1,l] = beta[l] + omega * weekend[1,l] + theta_A * airfilter[1,l] + gamma[2] * medianRest_mean[1,l];
+    mu_new_infections_Masks[1,l] = susceptibles_Masks[1,l] * inv_logit(logit_prop_infections_Masks[1,l]);
+    mu_cum_infections_Masks[1,l] = mu_new_infections_Masks[1,l];
+
+    susceptibles_Air[1,l] = population[l];
+    logit_prop_infections_Air[1,l] = beta[l] + omega * weekend[1,l] + (theta_M + theta_l[l]) * maskmandate[1,l] + gamma[2] * medianRest_mean[1,l];
+    mu_new_infections_Air[1,l] = susceptibles_Air[1,l] * inv_logit(logit_prop_infections_Air[1,l]);
+    mu_cum_infections_Air[1,l] = mu_new_infections_Air[1,l];
+
+    avoided_infections_Air[1,l] = mu_new_infections_base[1,l] - mu_new_infections_Air[1,l];
+    avoided_infections_Masks[1,l] = mu_new_infections_base[1,l] - mu_new_infections_Masks[1,l];
+
+    for (d in 2:S) {
+      susceptibles_base[d,l] = population[l] - mu_cum_infections_base[d-1,l];
+      logit_prop_infections_base[d,l] = beta[l] + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + theta_A * airfilter[d,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_base[d,l] = susceptibles_base[d,l] * inv_logit(logit_prop_infections_base[d,l]);
+      mu_cum_infections_base[d,l] = mu_cum_infections_base[d-1,l] + mu_new_infections_base[d,l];
+
+      susceptibles_Masks[d,l] = population[l] - mu_cum_infections_Masks[d-1,l];
+      logit_prop_infections_Masks[d,l] = beta[l] + omega * weekend[d,l] + theta_A * airfilter[d,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_Masks[d,l] = susceptibles_Masks[d,l] * inv_logit(logit_prop_infections_Masks[d,l]);
+      mu_cum_infections_Masks[d,l] = mu_cum_infections_Masks[d-1,l] + mu_new_infections_Masks[d,l];
+
+      susceptibles_Air[d,l] = population[l] - mu_cum_infections_Air[d-1,l];
+      logit_prop_infections_Air[d,l] = beta[l] + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_Air[d,l] = susceptibles_Air[d,l] * inv_logit(logit_prop_infections_Air[d,l]);
+      mu_cum_infections_Air[d,l] = mu_cum_infections_Air[d-1,l] + mu_new_infections_Air[d,l];
+
+      avoided_infections_Air[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Air[d,l];
+      avoided_infections_Masks[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Masks[d,l];
+    }
+
+    for (d in (S+1):DS) {
+      susceptibles_base[d,l] = population[l] - mu_cum_infections_base[d-1,l];
+      logit_prop_infections_base[d,l] = beta[l] + omega * weekend[d,l] + (theta_M + theta_l[l]) * maskmandate[d,l] + theta_A * airfilter[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_base[d,l] = susceptibles_base[d,l] * inv_logit(logit_prop_infections_base[d,l]);
+      mu_cum_infections_base[d,l] = mu_cum_infections_base[d-1,l] + mu_new_infections_base[d,l];
+
+      susceptibles_Masks[d,l] = population[l] - mu_cum_infections_Masks[d-1,l];
+      logit_prop_infections_Masks[d,l] = beta[l] + omega * weekend[d,l] + theta_A * airfilter[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_Masks[d,l] = susceptibles_Masks[d,l] * inv_logit(logit_prop_infections_Masks[d,l]);
+      mu_cum_infections_Masks[d,l] = mu_cum_infections_Masks[d-1,l] + mu_new_infections_Masks[d,l];
+
+      susceptibles_Air[d,l] = population[l] - mu_cum_infections_Air[d-1,l];
+      logit_prop_infections_Air[d,l] = beta[l] + omega * weekend[d,l] + theta_M * maskmandate[d,l] + gamma[1] * prop_absences[d-S,l] + gamma[2] * medianRest_mean[d,l];
+      mu_new_infections_Air[d,l] = susceptibles_Air[d,l] * inv_logit(logit_prop_infections_Air[d,l]);
+      mu_cum_infections_Air[d,l] = mu_cum_infections_Air[d-1,l] + mu_new_infections_Air[d,l];
+
+      avoided_infections_Air[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Air[d,l];
+      avoided_infections_Masks[d,l] = mu_new_infections_base[d,l] - mu_new_infections_Masks[d,l];
+    }
+  }
+}

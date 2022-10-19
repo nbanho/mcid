@@ -7,6 +7,9 @@ library(lubridate)
 source("utils/plotting.r")
 source("utils/epi.r")
 
+if(!dir.exists('fitted-models/multiverse')) {
+  dir.create('fitted-models/multiverse')
+}
 
 #### Data #### 
 
@@ -254,8 +257,11 @@ known_onset_df <- df %>%
 
 # simulate datasets
 for (i in 1:N) {
-  # seed
+  # directory
   path_i <- paste0(path, i, "/")
+  if(!dir.exists(path_i)) {
+    dir.create(path_i)
+  }
   
   # sample symptom onset dates
   sample_onset_df <- unknown_onset_df %>%

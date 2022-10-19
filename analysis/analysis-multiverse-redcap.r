@@ -18,7 +18,10 @@ names(col_order) <- 1:5
 N <- 100
 path <- "fitted-models/multiverse/"
 
-for (i in 1:4) {
+for (i in 1:N) {
+  
+  print(sprintf("Dataset %i", i))
+  
   # seed
   set.seed(i)
   path_i <- paste0(path, i, "/")
@@ -27,8 +30,8 @@ for (i in 1:4) {
   sDF <- readRDS(paste0(path_i, "sample-modeling-stan-datalist.rds"))
   
   # run model
-  old_fits <- list.files(path_i, pattern = "tm_class", full.names = T)
-  file.remove(old_fits)
+  # old_fits <- list.files(path_i, pattern = "tm_class", full.names = T)
+  # file.remove(old_fits)
   
   tmFit <- tm$sample(
     data = sDF,
@@ -38,7 +41,8 @@ for (i in 1:4) {
     iter_sampling = 1e3,
     parallel_chains = 4,
     threads_per_chain = 2,
-    refresh = 200
+    refresh = 0,
+    show_messages = F
   )
   
   # if (i == 1) {

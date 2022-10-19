@@ -32,27 +32,29 @@ names(col_order) <- 1:5
 J <- length(col_order)
 
 df <- read.csv("../data-clean/redcap-cases.csv")
+
+full_df <- readRDS("../data-clean/redcap-full-range.rds")
 ```
 
 ```{r}
 # Intervention dates
-maskmandate_dates <- df %>%
-  group_by(school, class) %>%
+maskmandate_dates <- full_df %>%
+  group_by(school_class) %>%
   arrange(date) %>%
   filter(intervention == "None") %>%
   slice(1) %>%
   ungroup() %>%
-  select(school, class, date, day) %>%
+  select(school_class, date, day) %>%
   mutate(day = day -1,
          intervention = "Mask\nmandate")
 
-airfilter_dates <- df %>%
-  group_by(school, class) %>%
+airfilter_dates <- full_df %>%
+  group_by(school_class) %>%
   arrange(date) %>%
   filter(intervention == "Air filter") %>%
   slice(1) %>%
   ungroup() %>%
-  select(school, class, date, day) %>%
+  select(school_class, date, day) %>%
   mutate(intervention = "Air\nfilter")
 
 intervention_dates <- rbind(maskmandate_dates, airfilter_dates) %>%
@@ -240,6 +242,7 @@ tmFit <- tm$sample(
   
 tmFit$summary(c("phi_N", "alpha", "omega", "beta", "mu_p_in", "sigma_p_in", "theta_M", "tau", "theta_l", "theta_A", "gamma")) 
 ```
+
 ### New infections
 
 ```{r}
@@ -367,9 +370,9 @@ new_N_week %>%
 meta_dat <- data.frame(folders = list.files("../fitted-models/multiverse", full.names = T),
                        dataset = as.numeric(list.files("../fitted-models/multiverse"))) %>%
   arrange(dataset) %>%
-  mutate(avoided_file = sapply(folders, list.files, pattern = "avoided", full.names = T),
+  mutate(avoided_file = sapply(folders, list.files, pattern = "avoided-infections", full.names = T),
          inc_file = sapply(folders, list.files, pattern = "incidence", full.names = T),
-         sample_file = sapply(folders, list.files, pattern = "sample", full.names = T),
+         sample_file = sapply(folders, list.files, pattern = "sample-modeling-df.rds", full.names = T),
          results_file = sapply(folders, list.files, pattern = "estimation_results", full.names = T))
 ```
 
@@ -381,11 +384,11 @@ est_results <- meta_dat %>%
   unnest() %>%
   select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) %>%
   group_by(variable) %>%
-  summarize_all(mean) %>%
+  summarize_all(median) %>%
   ungroup() %>%
   mutate_if(is.numeric, function(x) tex_sign(round_k(x)))
 
-variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "mu_p_in", "sigma_p_in", 
+variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "omega", "mu_p_in", "sigma_p_in", 
               "theta_M", "tau", paste0("theta_l[",1:J,"]"),"theta_A",
               "gamma[1]", "gamma[2]")
 variable_name <- c("$\\phi$", 
@@ -394,6 +397,7 @@ variable_name <- c("$\\phi$",
                    "$\\alpha_{\\textrm{School 1 Control}}$", 
                    "$\\alpha_{\\textrm{School 2 Study}}$", 
                    "$\\alpha_{\\textrm{School 2 Control}}$",
+                   "$\\omega$",
                    "$\\mu^{p_{IN}}$", "$\\sigma^{p_{IN}}$", 
                    "$\\theta^M$", "$\\tau$",
                    "$\\theta^M_{\\textrm{School 1 Study (A)}}$", 
@@ -406,6 +410,7 @@ variable_name <- c("$\\phi$",
 names(variable_name) <- variable
 
 est_results <- est_results %>%
+  filter(!(grepl("beta",variable))) %>%
   mutate(parameter = variable,
          parameter = recode(variable, !!! variable_name),
          parameter = factor(parameter, levels = variable_name)) %>%
@@ -423,116 +428,7 @@ xtable::print.xtable(xtable::xtable(est_results),
                      hline.after = NULL)
 ```
 
-### Cumulative infections
-
-```{r}
-# Example
-ex <- 1
-path_ex <- paste0("../fitted-models/multiverse/", ex, "/")
-example <- cmdstanr::read_cmdstan_csv(list.files(path_ex, pattern = "tm_class", full.names = T))
-
-comp_I <- gather_draws_csv2(example, "mu_cum_infections", 1, nrow(df) / length(col_order) + S, 1, length(col_order)) %>%
-  mutate(variable = "Infections") 
-
-comp_N <- gather_draws_csv2(example, "mu_cum_cases", 1, nrow(df) / length(col_order) + S, 1, length(col_order)) %>%
-  mutate(variable = "Cases") 
-
-comp_S <- gather_draws_csv2(example, "susceptibles", 1, nrow(df) / length(col_order) + S, 1, length(col_order)) %>%
-  mutate(variable = "Susceptibles") 
-
-est_comp <- rbind(comp_I, comp_N, comp_S) %>%
-  rename(day = row, 
-         class = col) %>%
-  mutate(class = recode(as.numeric(class), !!! col_order),
-         class = factor(class, levels = col_order),
-         day = as.numeric(day) - S) %>%
-  select(-.draw, -.chain, -.iteration) %>%
-  group_by(class, day, variable) %>%
-  mean_qi() %>%
-  ungroup() %>%
-  mutate(type = "Estimated")
-
-df_wSeed <- readRDS(paste0(path_ex, "sample.rds")) %>%
-  select(class, day, cum_cases) %>%
-  rename(value = cum_cases) %>%
-  left_join(est_comp %>%
-    select(class, day, variable, value) %>%
-    filter(variable == "Cases") %>%
-    filter(day == 1) %>%
-    mutate(value = round(value),
-           type = "Observed") %>%
-    rename(seed_value = value) %>%
-    select(-day)) %>%
-  mutate(value = value + seed_value) 
-
-cum_inc_pl <- ggplot(mapping = aes(x = day)) +
-  geom_line(data = est_comp, mapping = aes(y = value, color = variable, linetype = type), size = 1) +
-  geom_ribbon(data = est_comp, mapping = aes(ymin = .lower, ymax = .upper, fill = variable), alpha = .2) +
-  geom_line(data = df_wSeed, mapping = aes(y = value, color = variable, linetype = type), size = 1) +
-  geom_vline(data = intervention_dates, mapping = aes(xintercept = day), linetype = "dotted") +
-  geom_vline(data = data.frame(x=1), mapping = aes(xintercept = x), linetype = "dotted", color = "red") +
-  scale_fill_brewer(palette = "Accent") +
-  scale_color_brewer(palette = "Accent") +
-  facet_wrap(~ class) +
-  scale_x_continuous(expand = c(0,0), breaks = c(-11, seq(1, 51, 10))) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(y = "Cumulative incidence", color = "", fill = "", linetype = "", title = "a") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank(), legend.position = "bottom",
-        panel.spacing = unit(1, "lines"), plot.title = element_text(hjust = 0))
-
-cum_inc_pl
-```
-
-```{r}
-# cumulative infections 95-CrI
-cum_I_crI <- meta_dat %>%
-  mutate(estimated_data = lapply(inc_file, readRDS)) %>%
-  unnest() %>%
-  filter(variable == "Cumulative cases") %>%
-  filter(.width == "0.95") %>%
-  select(inc_file, dataset, class, day, value, .lower, .upper)
-
-# observations
-cum_N_obs <- meta_dat %>%
-  mutate(observed_data = lapply(sample_file, readRDS)) %>%
-  unnest() %>%
-  select(sample_file, dataset, class, day, cum_cases)
-
-# coverage
-coverage_df <- left_join(cum_I_crI, cum_N_obs) %>%
-  mutate(is_in = ifelse(cum_cases >= .lower & cum_cases <= .upper, T, F)) %>%
-  group_by(dataset) %>%
-  summarise(coverage = sum(is_in) / n() * 100) %>%
-  ungroup() %>%
-  arrange(coverage) %>%
-  mutate(order = n():1)
-
-coverage_df_pl <- coverage_df %>%
-  ggplot(aes(x = order, y = coverage)) +
-  geom_line() +
-  geom_point(shape = 4) +
-  geom_hline(aes(yintercept = round(mean(coverage_df$coverage))), color = "blue", linetype = "dotted")  + 
-  annotate("text", y = round(mean(coverage_df$coverage)) - 5, x = 15, 
-           label = paste0("Average across datasets: ", round(mean(coverage_df$coverage))),
-           size = 8 / cm(1), color = "blue") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,100)) +
-  labs(y = "Empirical coverage of the 95%-CrI by dataset (%)", title = "b") +
-  theme_bw2() +
-  theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(),
-        plot.title = element_text(hjust = 0))
-
-coverage_df_pl
-```
-
-```{r}
-comb_inc_pl <- arrangeGrob(cum_inc_pl, coverage_df_pl, heights = c(10, 8), ncol = 1)
-
-ggsave(plot = comb_inc_pl, filename = "../results/redcap-supp-results-incidence.pdf", width = 16 / cm(1), height = 18 / cm(1))
-```
-
-### Estimated Infections
+### New Infections
 
 ```{r}
 new_inc <- meta_dat %>%
@@ -542,30 +438,101 @@ new_inc <- meta_dat %>%
 
 new_inc_mean <- new_inc %>%
   filter(.width == .95) %>%
-  group_by(class, day) %>%
+  group_by(school_class, day) %>%
   summarize(across(c(value, .lower, .upper), median)) %>%
   ungroup()
 
 est_I_pl <- ggplot(new_inc_mean, aes(x = day)) +
   geom_path(aes(y = value), color = RColorBrewer::brewer.pal(9, "Blues")[7]) +
   geom_ribbon(aes(ymin = .lower, ymax = .upper), fill = RColorBrewer::brewer.pal(9, "Blues")[7], alpha = .2) +
-  facet_wrap(~ class) +
-  geom_rect(data = intervention_dates, 
-            mapping = aes(xmin = start_day, xmax = end_day, fill = intervention, ymin = -Inf, ymax = Inf), 
-            alpha = .15) +
-  geom_text(data = intervention_dates, aes(label = intervention, color = intervention, x = x, y = 1), size = 6 / cm(1)) +
-  scale_x_continuous(expand = c(0,0)) +
+  facet_wrap(~ school_class) +
+  geom_vline(data = intervention_dates, mapping = aes(xintercept = day), linetype = "dotted") +
+  geom_vline(data = data.frame(x=1), mapping = aes(xintercept = x), linetype = "dotted", color = "red") +
+  scale_x_continuous(expand = c(0,0), breaks = c(-11, seq(1, 51, 10))) +
   scale_y_continuous(expand = c(0,0)) +
   scale_fill_manual(values = cbPalette) +
   scale_color_manual(values = cbPalette) +
-  labs(y = "Estimated number of new infections", color = "Intervention") +
+  labs(y = "Estimated number of new infections", color = "Intervention", title = "a") +
   theme_bw2() +
-  theme(axis.title.x = element_blank(), legend.position = "none",
-        plot.title = element_text(hjust = 0)) 
+  theme(axis.title.x = element_blank(), legend.position = "bottom",
+        panel.spacing = unit(1, "lines"), plot.title = element_text(hjust = 0)) 
 
 est_I_pl
+```
 
-save_plot(est_I_pl, pdf_file = "../results/redcap-supp-results-infections.pdf", w = 16, h = 10)
+### Cumulative infections
+
+```{r}
+cum_inc <- meta_dat %>%
+  mutate(data = lapply(inc_file, readRDS)) %>%
+  unnest() %>%
+  filter(variable %in% c("Cumulative cases", "Cumulative infections", "Susceptibles")) 
+
+cum_inc_mean <- cum_inc %>%
+  filter(.width == .95) %>%
+  group_by(school_class, day, variable) %>%
+  summarize(across(c(value, .lower, .upper), median)) %>%
+  ungroup()
+
+cum_inc_pl <- ggplot(mapping = aes(x = day)) +
+  geom_line(data = cum_inc_mean, mapping = aes(y = value, color = variable, linetype = variable), size = 1) +
+  geom_ribbon(data = cum_inc_mean, mapping = aes(ymin = .lower, ymax = .upper, fill = variable), alpha = .2) +
+  geom_vline(data = intervention_dates, mapping = aes(xintercept = day), linetype = "dotted") +
+  geom_vline(data = data.frame(x=1), mapping = aes(xintercept = x), linetype = "dotted", color = "red") +
+  scale_fill_brewer(palette = "Accent") +
+  scale_color_brewer(palette = "Accent") +
+  facet_wrap(~ school_class) +
+  scale_x_continuous(expand = c(0,0), breaks = c(-11, seq(1, 51, 10))) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(y = "Cumulative incidence", color = "", fill = "", linetype = "", title = "b") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), legend.position = "bottom",
+        panel.spacing = unit(1, "lines"), plot.title = element_text(hjust = 0))
+
+cum_inc_pl
+
+comb_inc_pl <- arrangeGrob(est_I_pl, cum_inc_pl, heights = c(8, 8), ncol = 1)
+ggsave(plot = comb_inc_pl, filename = "../results/redcap-supp-results-infections.pdf", width = 16 / cm(1), height = 16 / cm(1))
+```
+
+### Coverage
+
+```{r}
+# observations
+new_inc_obs <- meta_dat %>%
+  mutate(observed_data = lapply(sample_file, readRDS)) %>%
+  unnest() %>%
+  select(school_class, day, new_cases) %>%
+  group_by(school_class, day) %>% 
+  median_qi(.width = .95) %>%
+  ungroup() %>%
+  mutate(variable = "Observed (simulated)") %>%
+  rename(value = new_cases) %>%
+  select(school_class, day, variable, value, .lower, .upper)
+  
+# coverage
+coverage_df <- new_inc_mean %>%
+  filter(day >= 1) %>%
+  mutate(variable = "Estimated") %>%
+  rbind(new_inc_obs) %>%left_join(full_df %>%
+              select(school_class, day, intervention, no_school)) %>%
+  filter(!no_school) %>%
+  group_by(school_class, intervention, variable) %>%
+  summarise(across(c(value, .lower, .upper), sum)) %>%
+  ungroup()
+
+coverage_df_pl <- coverage_df %>%
+  ggplot(aes(y = intervention, color = variable)) +
+  facet_wrap(~ school_class) + 
+  geom_linerange(mapping = aes(xmin = .lower, xmax = .upper), position = position_dodge(width = .25)) +
+  geom_point(mapping = aes(x = value, shape = variable), position = position_dodge(width = .25)) +
+  scale_color_manual(values = c("blue", "black")) +
+  labs(x = "Estimated and observed (simulated) number of cases") +
+  theme_bw2() +
+  theme(legend.title = element_blank(), axis.title.y = element_blank())
+
+coverage_df_pl
+save_plot(coverage_df_pl, pdf_file = "../results/redcap-supp-results-coverage.pdf", w = 16, h = 8)
 ```
 
 
@@ -579,7 +546,7 @@ avoided_df <- meta_dat %>%
          variable = factor(variable, levels = c("Mask mandate", "Air filter")))
 
 avoided_df_sum <- avoided_df %>%
-  select(dataset, variable, class, draw, value) %>%
+  select(dataset, variable, school_class, draw, value) %>%
   group_by(dataset, variable, draw) %>%
   summarize(value = sum(value)) %>%
   ungroup() %>%
@@ -618,7 +585,7 @@ save_plot(av_inf_tot_pl, pdf_file = "../results/redcap-results.pdf", w = 16, h =
 
 ```{r}
 avoided_df_sum_by_d <- avoided_df %>%
-  select(dataset, variable, class, draw, value) %>%
+  select(dataset, variable, school_class, draw, value) %>%
   group_by(dataset, variable, draw) %>%
   summarize(value = sum(value)) %>%
   ungroup() %>%

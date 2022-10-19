@@ -7,7 +7,7 @@ library(reshape2)
 
 #### Load data ####
 
-df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ";") %>%
+df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ",") %>%
   rename(school = `Data.Access.Group`,
          date_start = `Datum_abwesend`,
          date_end = `Datum_zurück`,
@@ -21,10 +21,10 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ";") %>%
          class = ifelse(school == "School 1", ifelse(is_study_class, paste0("Study (", classlabel, ")"), "Control"), 
                         ifelse(is_study_class, "Study", "Control")),
          is_teacher = ifelse(`Bitte.geben.Sie.das.Geburtsjahr.des.Schülers...der.Schülerin.an` <= 2000, T, F),
-         date_start = as.Date(date_start, format = "%d.%m.%Y"),
-         date_end = as.Date(date_end, format = "%d.%m.%Y"),
-         date_symptoms = as.Date(date_symptoms, format = "%d.%m.%Y"),
-         date_test = as.Date(date_test, format = "%d.%m.%Y"),
+         date_start = as.Date(date_start, format = "%d.%m.%y"),
+         date_end = as.Date(date_end, format = "%d.%m.%y"),
+         date_symptoms = as.Date(date_symptoms, format = "%d.%m.%y"),
+         date_test = as.Date(date_test, format = "%d.%m.%y"),
          # special case: teachers --> set date_start = date_end
          date_end = ifelse(is.na(date_end), as.character(date_start + days(1)), as.character(date_end)),
          date_end = as.Date(date_end),
@@ -55,9 +55,10 @@ df %>%
   summarize(n = sum(missing[value])) %>%
   ungroup() %>%
   dcast(school + class ~ variable) %>%
-  mutate(Total = `Quarantäne` + Isolation + Krankheit + Anderes) %>%
+  mutate(Total = `Quarantäne` + Isolation + Krankheit + Anderes,
+         class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control"))) %>%
   select(school, class, Total, `Quarantäne`, Isolation, Krankheit, Anderes) %>%
-  arrange(school, desc(class)) %>%
+  arrange(school, class) %>%
   as.matrix() %>%
   t()
 
@@ -153,75 +154,3 @@ df_absences <- df_absent %>% left_join(df_tot) %>%
   mutate(school_class = factor(paste(school, class), levels = col_order))
 
 write.csv(df_absences, "data-clean/redcap-absences.csv", row.names = F)
-
-# df_cases <- df_confirmed_tot %>%
-#   select(school, is_study_class, class, date_start) %>%
-#   mutate(suspected = "confirmed") %>%
-#   rbind(df_confirmed_tot %>%
-#           select(school, is_study_class, class, date_end) %>%
-#           rename(date_start = date_end) %>%
-#           mutate(suspected = "recovered_from_confirmed")) %>%
-#   rbind(df_suspected %>%
-#           select(school, is_study_class, class, date_start, suspected)) %>%
-#   rbind(df_suspected %>%
-#           select(school, is_study_class, class, date_end, suspected) %>%
-#           rename(date_start = date_end) %>%
-#           mutate(suspected = paste0("recovered_from_", suspected))) %>%
-#   group_by(school, is_study_class, class, suspected, date_start) %>%
-#   summarize(new_cases = n()) %>%
-#   ungroup() %>%
-#   dcast(date_start + school + is_study_class + class ~ suspected) %>%
-#   mutate_at(vars(confirmed, symptomatic, unknown,
-#                  recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
-#             function(x) ifelse(is.na(x), 0, x))
-# 
-# df_cases <- data.frame(date_start = rep(seq.Date(min(df$date_start), 
-#                                                  max(df$date_start),
-#                                                  by = "1 day"), 5)) %>%
-#   mutate(school = rep(c("School 1", "School 1", "School 1", "School 2", "School 2"), each = nrow(.) / 5),
-#          is_study_class = rep(c(T, T, F, T, F), each = nrow(.) / 5),
-#          class = rep(c("Study (B3d)", "Study (E3f)", "Control", "Study", "Control"), each = nrow(.) / 5)) %>%
-#   left_join(df_cases) %>%
-#   rename(date = date_start) %>%
-#   group_by(school, is_study_class, class) %>%
-#   arrange(date) %>%
-#   mutate_at(vars(confirmed, symptomatic, unknown,
-#                  recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
-#             function(x) ifelse(is.na(x), 0, x)) %>%
-#   mutate(across(c(confirmed, symptomatic, unknown,
-#                   recovered_from_confirmed, recovered_from_symptomatic, recovered_from_unknown), 
-#                 cumsum, .names = 'cum_{col}')) %>%
-#   ungroup() %>%
-#   mutate(week = as.numeric(strftime(date, format = "%V")))  %>%
-#   mutate(maskmandate = ifelse(school == "School 1" & week < 8, 1, 
-#                               ifelse(school == "School 2" & week < 9, 1, 0)),
-#          airfilter = ifelse(school == "School 1" & week >= 11, 1, 
-#                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
-#          airfilter = ifelse(class == "Control", 0, airfilter),
-#          weekday = weekdays(date),
-#          weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
-#          #maskmandate = ifelse(weekend == 1, 0, maskmandate),
-#          #airfilter = ifelse(weekend == 1, 0, airfilter),
-#          no_school = ifelse(school == "School 1" & week %in% c(6,7), T, 
-#                             ifelse(school == "School 2" & week %in% c(6,12), T, F)),
-#          intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
-#          intervention = factor(intervention, levels = c("Mask mandate", "None", "Air filter")))  %>%
-#   left_join(df_absent) %>%
-#   left_join(df_tot) %>%
-#   mutate(n_absent = ifelse(!is.na(n_absent), n_absent, 0)) %>%
-#   rename(n_tot_absent = n_absent,
-#          new_confirmed = confirmed,
-#          new_symptomatic = symptomatic,
-#          new_unknown = unknown,
-#          new_recovered_from_confirmed = recovered_from_confirmed,
-#          new_recovered_from_symptomatic = recovered_from_symptomatic,
-#          new_recovered_from_unknown = recovered_from_unknown) %>%
-#   mutate(class = ifelse(class == "Study (E3f)", "Study (A)", 
-#                         ifelse(class == "Study (B3d)", "Study (B)", class))) %>%
-#   select(school, is_study_class, class, date, week, weekday, weekend, 
-#          intervention, airfilter, maskmandate, no_school,
-#          n_class, n_tot_absent, 
-#          new_confirmed, new_symptomatic, new_unknown, 
-#          cum_confirmed, cum_symptomatic, cum_unknown, 
-#          new_recovered_from_confirmed, new_recovered_from_symptomatic, new_recovered_from_unknown,
-#          cum_recovered_from_confirmed, cum_recovered_from_symptomatic, cum_recovered_from_unknown)
