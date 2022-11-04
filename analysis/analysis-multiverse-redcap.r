@@ -77,6 +77,17 @@ for (i in 1:N) {
     mean_qi() %>%
     ungroup() %>%
     mutate(variable = "Cases")
+  est_new_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "estimated_new_cases") %>%
+    rename(day = row,
+           school_class = col) %>%
+    mutate(school_class = recode(school_class, !!! col_order),
+           school_class = factor(school_class, levels = col_order),
+           day = day - sDF$S) %>%
+    select(-draw) %>%
+    group_by(school_class, day) %>%
+    mean_qi() %>%
+    ungroup() %>%
+    mutate(variable = "Estimated cases")
   cum_I <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_cum_infections") %>%
     rename(day = row,
            school_class = col) %>%
@@ -110,7 +121,7 @@ for (i in 1:N) {
     mean_qi() %>%
     ungroup() %>%
     mutate(variable = "Susceptibles")
-  estimated_inc <- rbind(new_I, new_N, cum_I, cum_N, susceptibles)
+  estimated_inc <- rbind(new_I, new_N, est_new_N, cum_I, cum_N, susceptibles)
   
   saveRDS(estimated_inc, paste0(path_i, "incidence.rds"))
   

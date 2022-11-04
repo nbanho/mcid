@@ -3,6 +3,7 @@
 library(tidyverse)
 library(reshape2)
 library(lubridate)
+library(LaplacesDemon)
 
 source("utils/plotting.r")
 source("utils/epi.r")
@@ -53,8 +54,8 @@ full_df <- data.frame(school_class = rep(col_order, each = length(dates)),
          weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T,
                             ifelse(school == "School 2" & week %in% c(6,12), T, F)),
-         intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
-         intervention = factor(intervention, levels = c("Mask mandate", "None", "Air filter")),
+         intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air cleaner", "No intervention")),
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner")),
          prop_absences = ifelse(no_school, 0, prop_absences)) %>%
   select(school, class, school_class, date, week, weekend, day, weekday, 
          no_school, intervention, maskmandate, airfilter,

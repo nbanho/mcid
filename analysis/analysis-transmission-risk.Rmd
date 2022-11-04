@@ -14,88 +14,70 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(tidybayes)
+library(LaplacesDemon)
 
 source("../utils/plotting.R")
+source("../utils/tex.R")
+source("../helper/settings.r")
 ```
 
 ## Data
 
 ```{r}
 study_classes <- c("Study (A)", "Study (B)", "Study")
+study_classes_names <- c("S1 (A)", "S1  (B)", "S2")
+names(study_classes_names) <- study_classes
 
 # environmental data
 palas <- read_csv("../data-clean/left-palas-redcap.csv") %>%
   mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
-         intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter")))
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner")))
 
-palas_daily <- palas %>%
-  filter(class %in% study_classes) %>%
-  group_by(school, class, date, week, weekday, intervention, maskmandate, airfilter) %>%
-  summarize(across(c(f, n_room, n_class), ~ median(.x, na.rm = T))) %>% 
-  ungroup() %>%
-  group_by(class) %>%
-  arrange(date) %>%
-  mutate(day = 1:n()) %>%
-  ungroup()
-
-palas_int <- palas %>%
-  group_by(school, class, intervention) %>%
-  summarise(median_f = median(f),
-            sd_f = sd(f)) %>%
-  ungroup()
-
-# covid data  
-redcap <- read_csv("../data-clean/redcap.csv") %>%
-  filter(!no_school,
-         class %in% study_classes) %>%
-  group_by(school, class) %>%
-  arrange(date) %>%
-  mutate(day = 1:n()) %>%
-  ungroup() 
+# case data range  
+redcap_full <- readRDS("../data-clean/redcap-full-range.rds")
 
 redcap_sim <- meta_dat <- data.frame(folders = list.files("../fitted-models/multiverse", full.names = T),
                                      dataset = as.numeric(list.files("../fitted-models/multiverse"))) %>%
-  mutate(sample_file = sapply(folders, list.files, pattern = "sample", full.names = T)) %>%
+  mutate(sample_file = sapply(folders, list.files, pattern = "sample.rds", full.names = T)) %>%
   mutate(observed_data = lapply(sample_file, readRDS)) %>%
   unnest() %>%
-  select(sample_file, dataset, class, day, new_cases) %>%
-  filter(grepl("Study", class)) %>%
-  mutate(school = stringi::stri_extract(class, regex = "School \\d"),
-         class = gsub("School \\d ", "", class))
-
+  filter(grepl("Study", class)) 
 ```
 
-## Assumptions
+## Input
 
-### Overview 
+### Rebr. air fraction (f)
 
-Infectious quanta from Buonanno 2020
-* https://www.sciencedirect.com/science/article/pii/S0160412020320675?via%3Dihub
-* Table 2 - Light activity, speaking
-* Mean 6.98 x 10e-1; St.dev: 7.20 x 10e-1 quanta/hour
+Use median rebreathed air fraction from this study
+
+```{r}
+rebAirFrac <- palas %>%
+  group_by(school, class, date, intervention) %>%
+  summarize(f = mean(f, na.rm = T)) %>% 
+  ungroup() 
+```
+
+```{r}
+rebAirFrac_pl <- rebAirFrac %>%
+  mutate(class = recode(class, !!! study_classes_names),
+         class = factor(class, levels = study_classes_names)) %>%
+  ggplot(aes(x = class, color = intervention, y = f)) +
+  geom_boxplot() +
+  scale_color_manual(values = intervention_col) +
+  labs(y = "Average rebreathed air fraction", title = "a") +
+  theme_bw2() +
+  theme(legend.position = "none", axis.title.x = element_blank())
+
+rebAirFrac_pl
+```
+
+
+### No. of infectious (I)
 
 Number of infectious cases from this study
-* take inferred infections
-* assume that they are being infectious ~1-3 days before symptom onset
-* https://link.springer.com/article/10.1007/s15010-020-01531-3
-* https://academic.oup.com/cid/article/74/9/1678/6359063
-* https://www.sciencedirect.com/science/article/pii/S1755436521000359
-* --> use data by date of absence and shift cases to the left (with something half-normal shaped)
+* --> use data from probabilistic simulation and shift cases to the left (with something half-normal shaped)
 * for this, use infectiousness profile from He et al: https://www.nature.com/articles/s41591-020-0869-5#Sec1
-* --> weight suspected cases accordingly
-
-
-Time spent in school from this study
-* use time spent in class room
-
-Number of contacts from this study
-* could possibly assume that they get in contact with all class mates
-
-Rebreathed air fraction
-* calculated from this study
-
-
-### Infectiousness
+* take into account that some students stayed in school with symptoms (date absence - date symptoms)
 
 ```{r}
 # Infectious profile
@@ -112,172 +94,235 @@ mtext('Density', 2, line=3)
 mtext('Days after symptom onset', 1, line=2.5)
 
 # corresponding probability distribution
-plot(dgamma(-10:0+inf_par[3], inf_par[1], inf_par[2]))
+inf_dens_pl <- data.frame(x = -7:3) %>%
+  mutate(y = dgamma(x+inf_par[3], inf_par[1], inf_par[2])) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(aes(xintercept = 0), linetype = "dotted", alpha = .5) +
+  labs(x = "Days since symptom onset", y = "Density") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw2()
 
+inf_dens_pl
+
+# compute infectiousness, i.e. relative probability of transmission
 p_if <- function(x) {
-  pgamma(x+.5+inf_par[3], inf_par[1], inf_par[2]) - pgamma(x-0.5+inf_par[3], inf_par[1], inf_par[2])
+  max_dens <- max(dgamma(seq(-5, 5, 1)+inf_par[3], inf_par[1], inf_par[2]))
+  dgamma(x+inf_par[3], inf_par[1], inf_par[2]) / max_dens
 }
 
-plot(sapply(-10:0, p_if))
+
+inf_prob_pl <- data.frame(x = -7:3) %>%
+  mutate(y = p_if(x)) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(aes(xintercept = 0), linetype = "dotted", alpha = .5) +
+  labs(x = "Days since symptom onset", y = "Relative prob. of transmission (%)", title = "a") +
+  scale_x_continuous(expand = c(0,0), breaks = seq(-10, 4, 2)) +
+  scale_y_continuous(expand = c(0,0), labels = function(x) x * 100) +
+  theme_bw2()
+
+inf_prob_pl
 ```
 
-## Estimation
-
-### rebreathed air fraction
-
 ```{r}
-palas_daily %>%
-  ggplot(aes(x = date, y = f, color = intervention)) +
-  facet_wrap(~ class) +
-  geom_point()
+study_period <- seq(min(redcap_full$date), max(redcap_full$date), by = "1 day")
 
-palas_int %>%
-  ggplot(aes(x = intervention, y = median_f)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = median_f - sd_f, ymax = median_f + sd_f)) +
-  facet_wrap(~ class)
-```
-
-### No. of infectious
-
-```{r}
-max_delay <- 7
-p_if_week <- p_if(-max_delay:-1)
-
-df_inf <- data.frame()
+infectious <- data.frame()
 
 for (sc in study_classes) {
   
   redcap_sim_sc <- redcap_sim %>% 
     filter(class == sc) 
+    
+    message(sprintf("Class: %s", sc))
   
   for (ds in 1:max(redcap_sim_sc$dataset)) {
     
     redcap_sim_sc_ds <- redcap_sim_sc %>%
-      filter(dataset == ds) %>%
-      arrange(day)
+      filter(dataset == ds) %>% 
+      arrange(date_start)
     
-    for (t in 1:(max(redcap_sim_sc_ds$day)-max_delay-1)) {
+    for (t in seq_along(study_period)) {
       
-      start <- t+1
-      end <- pmin((t+8), max(redcap_sim_sc_ds$day))
-      
-      n_inf <- sum(redcap_sim_sc_ds$new_cases[start:end],  rev(p_if_week))
+      redcap_sim_sc_ds <- redcap_sim_sc_ds %>%
+        filter(date_start > study_period[t]) %>%
+        mutate(days_since_symptoms = as.numeric(study_period[t]-date_symptoms),
+               prob_infectious = p_if(days_since_symptoms))
       
       new_entry <- data.frame(
         school = redcap_sim_sc$school[1], 
         class = sc,
         dataset = ds,
-        day = t,
-        infectious = n_inf)
+        date = study_period[t],
+        I = sum(redcap_sim_sc_ds$prob_infectious))
       
-      df_inf <- rbind(df_inf, new_entry)
+      infectious <- rbind(infectious, new_entry)
     }
   }
 }
-
-df_inf <- df_inf %>%
-  left_join(redcap %>%
-              select(school, class, day, date, intervention))
-
-df_inf %>%
-  select(-school) %>%
-  ggplot(aes(x = day, y = infectious)) +
-  facet_wrap(~ class) +
-  stat_lineribbon(.width = .95) +
-  scale_fill_manual(values = RColorBrewer::brewer.pal(9, "Blues")[4])
-
-df_inf %>%
-  group_by(school, class, day, intervention) %>%
-  summarize(infectious = mean(infectious)) %>%
-  ungroup() %>%
-  group_by(school, class, intervention) %>%
-  summarize(infectious = mean(infectious)) %>%
-  ungroup() %>%
-  ggplot(aes(x = intervention, y = infectious)) +
-  geom_bar(stat = "identity")
 ```
 
-### P transmission
+```{r}
+infectious %>%
+  group_by(school, class, date) %>%
+  summarise(I = mean(I)) %>%
+  ungroup() %>%
+  mutate(school_class = paste(school, class)) %>%
+  ggplot(aes(x = date, y =  I)) +
+  geom_step() +
+  facet_wrap(~ school_class)
+```
 
 ```{r}
-set.seed(12345)
-draws <- 1e3
+infectious_sub <- infectious %>%
+  left_join(redcap_full) %>%
+  # remove the last study week, the week before vacation, and the vacation weeks
+  mutate(study_week = week - 3) %>%
+  filter(study_week > 0,
+         ifelse(school == "School 1" & study_week %in% c(2,3,4,9), F, T),
+         ifelse(school == "School 2" & study_week %in% c(2,3,8,9), F, T)) %>%
+  filter(!(weekday %in% c("Saturday", "Sunday"))) %>%
+  group_by(school, class, date, intervention) %>%
+  summarise(I = mean(I)) %>%
+  ungroup() 
+```
 
+```{r}
+infectious_sub_pl <- infectious_sub %>%
+  mutate(class = recode(class, !!! study_classes_names),
+         class = factor(class, levels = study_classes_names)) %>%
+  ggplot(aes(x = class, color = intervention, y = I)) +
+  geom_boxplot() +
+  scale_color_manual(values = intervention_col) +
+  labs(y = "Expected number of infectious students", title = "b") +
+  theme_bw2() +
+  theme(legend.position = "none", axis.title.x = element_blank(), legend.title = element_blank())
 
-df_trisk <- df_inf %>%
-  left_join(palas_daily %>% select(-day)) %>%
-  filter(!is.na(weekday)) %>%
-  rename(I = infectious) %>%
-  mutate(n = n_room - 1) 
+infectious_sub_pl
+```
 
-df_trisk_by_t <- data.frame() 
-durations <- 45 * c(4, 6, 8, 10)
-for (t in durations) {
-  new_entry <- df_trisk %>%
-    rowwise() %>%
-    mutate(P = list(1 - exp(-f * I * rlnorm(draws, .698, .72) * t / n)),
-           draws = list(1:draws)) %>%
-    unnest() %>%
-    mutate(school_h = t / 45)
-  df_trisk_by_t <- rbind(df_trisk_by_t, new_entry)
-}
+### No. of contacts (n)
 
-df_trisk_by_t <- df_trisk_by_t %>% 
-  mutate(class = paste(school, class),
-         class = factor(class, levels = (c("School 1 Study (A)", "School 1 Study (B)", "School 2 Study"))),
-         intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter"))) 
+Use the number of students in the class from this study
 
-df_trisk_sum <- df_trisk_by_t %>%
-  group_by(school, class, dataset, draws, intervention, school_h) %>%
-  summarise(P = mean(P)) %>%
-  ungroup()
-
-df_trisk_sum_mean <- df_trisk_sum %>%
-  group_by(intervention, school_h) %>%
-  summarise(P = mean(P)) %>%
+```{r}
+ncontacts <- palas %>%
+  group_by(school, class, date, intervention) %>%
+  slice(1) %>%
+  mutate(n = n_room - 1) %>%
   ungroup() %>%
-  mutate(school_h = ifelse(intervention == "None", school_h - .25, 
-                           ifelse(intervention == "Air filter", school_h + .25, school_h)))
+  select(school, class, date, intervention, n)
+```
 
-df_trisk_sum_mean_bySchool <- df_trisk_sum %>%
-  group_by(school, intervention, school_h) %>%
-  summarise(P = mean(P)) %>%
+```{r}
+ncontacts_pl <- ncontacts %>%
+  mutate(class = recode(class, !!! study_classes_names),
+         class = factor(class, levels = study_classes_names)) %>%
+  ggplot(aes(x = class, color = intervention, y = n)) +
+  geom_boxplot() +
+  scale_color_manual(values = intervention_col) +
+  labs(y = "Number of students in class", title = "c") +
+  theme_bw2() +
+  theme(legend.position = "right", axis.title.x = element_blank(), legend.title = element_blank())
+
+ncontacts_pl
+
+comb_input_pl <- arrangeGrob(rebAirFrac_pl, infectious_sub_pl, ncontacts_pl, widths = c(4.4, 4.4, 7.2), ncol = 3)
+ggsave(plot = comb_input_pl, filename = "../results/supp-transrisk-input.pdf", width = 16 / cm(1), height = 6 / cm(1))
+```
+
+### Infectious quanta (q)
+
+Infectious quanta from Buonanno 2020
+* https://www.sciencedirect.com/science/article/pii/S0160412020320675?via%3Dihub
+* Table 2 - Light activity, speaking (log10 ERq)
+* Mean 6.98 x 10e-1; St.dev: 7.20 x 10e-1 quanta/hour
+
+```{r}
+m_q = 6.98
+s_q = 7.2
+logs_q = sqrt(log(s_q ^ 2 / m_q ^ 2 + 1))
+logm_q = log(m_q) - logs_q ^ 2 / 2
+
+inf_quanta_pl <- data.frame(x = seq(0, 25, .1)) %>%
+  mutate(y = dlnorm(x, logm_q, logs_q)) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  geom_vline(aes(xintercept = 0), linetype = "dotted", alpha = .5) +
+  labs(x = "Infectious quanta (p/h)", y = "Density", title = "b") +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 25, 5)) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw2()
+
+inf_quanta_pl
+
+inf_pl <- arrangeGrob(inf_prob_pl, inf_quanta_pl, widths = c(8, 8), nrow = 1)
+ggsave(plot = inf_pl, filename = "../results/supp-infectiousness.pdf", width = 16 / cm(1), height = 6 / cm(1))
+```
+
+```{r}
+rq <- function(q) qlnorm(q, logm_q, logs_q)
+quantas <- c(rq(0.025), 6.98, rq(.975))
+```
+
+### Exposure time (t)
+
+Estimate transmission risk for 20 to 40 hours per week in school.
+
+```{r}
+durations = seq(20, 40, 5)
+```
+
+
+## Estimation
+
+### Transmission risk (P)
+
+```{r}
+transRisk <- rebAirFrac %>%
+  left_join(ncontacts) %>%
+  left_join(infectious_sub) %>%
+  dplyr::filter(!is.na(I)) %>%
+  group_by(intervention) %>%
+  summarize(across(c(f, I, n), mean)) %>%
   ungroup() %>%
-  mutate(school_h = ifelse(intervention == "None", school_h - .5, 
-                           ifelse(intervention == "Air filter", school_h + .5, school_h)))
+  mutate(t = list(t = durations)) %>%
+  mutate(q = list(q = quantas)) %>%
+  unnest("t") %>%
+  unnest("q") %>%
+  mutate(P = (1 - exp(-f * I * q * t / n))) 
+```
 
+```{r}
+transRisk_sum <- transRisk %>%
+  mutate(q = paste0("Infectious quanta: ", round_k(q, 1), "p/h"),
+         q = factor(q, levels = paste0("Infectious quanta: ", round_k(quantas, 1), "p/h")))
 
-df_trisk_pl <- df_trisk_sum %>%
-  ggplot(aes(x = school_h, y = P, color = intervention)) +
-  geom_line(data = df_trisk_sum_mean) +
-  stat_pointinterval(point_interval = "mean_qi", position = position_dodge(width = .5), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
-  scale_color_manual(values = c("black", cbPalette[1:2])) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0,0), labels = function(x) x * 100) +
-  scale_x_continuous(breaks = durations / 45) +
-  labs(color = "Intervention", y = "Estimated average daily probability of transmission (%)", x = "Duration of exposure (school-hours in 45min)") +
+transRisk_sum %>%
+  filter(t == 30, q == "Infectious quanta: 7.0p/h") %>%
+  mutate(P = round(P * 100))
+
+transRisk_sum %>%
+  filter(t == 30, q == "Infectious quanta: 25.8p/h") %>%
+  mutate(P = round(P * 100))
+
+transRisk_pl <- transRisk_sum %>%
+  ggplot(aes(x = t, y = P, color = intervention)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ q) +
+  scale_color_manual(values = intervention_col) +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(add = c(0, .01)), labels = function(x) x * 100) + 
+  facet_wrap(~ q) +
+  labs(color = "Intervention", y = "Average SARS-CoV-2 risk (%)", x = "Hours of exposure") +
   theme_bw2() +
   theme(legend.position = "bottom", panel.spacing = unit(1, "lines"),
-        plot.margin = unit(c(5.5, 7.5, 5.5, 5.5), "points"))
+        plot.margin = unit(c(5.5, 7.5, 5.5, 5.5), "points"),
+        legend.title = element_blank())
 
-df_trisk_pl
+transRisk_pl
 
-save_plot(df_trisk_pl, pdf_file = "../results/results-transmission-risk.pdf", w = 12, h = 10)
-  
-df_trisk_bySchool_pl <- df_trisk_sum %>%
-  ggplot(aes(x = school_h, y = P, color = intervention)) +
-  facet_wrap(~ school, nrow = 1) +
-  geom_line(data = df_trisk_sum_mean_bySchool) +
-  stat_pointinterval(point_interval = "mean_qi", position = position_dodge(width = 1), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
-  scale_color_manual(values = c("black", cbPalette[1:2])) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0,0), labels = function(x) x * 100) +
-  scale_x_continuous(breaks = durations / 45) +
-  labs(color = "Intervention", y = "Estimated average daily probability of transmission (%)", x = "Duration of exposure (school-hours in 45min)") +
-  theme_bw2() +
-  theme(legend.position = "bottom", panel.spacing = unit(1, "lines"),
-        plot.margin = unit(c(5.5, 7.5, 5.5, 5.5), "points"))
-
-df_trisk_bySchool_pl
-
-save_plot(df_trisk_bySchool_pl, pdf_file = "../results/supp-results-transmission-risk.pdf", w = 16, h = 10)
+save_plot(transRisk_pl, pdf_file = "../results/results-transmission-risk.pdf", w = 10, h = 7)
 ```

@@ -59,6 +59,13 @@ df %>%
          class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control"))) %>%
   select(school, class, Total, `Quarantäne`, Isolation, Krankheit, Anderes) %>%
   arrange(school, class) %>%
+  bind_rows(data.frame(school = "Total", 
+                       class = "Total",
+                       Total = sum(.$Total),
+                       `Quarantäne` = sum(.$Quarantäne),
+                       Isolation = sum(.$Isolation),
+                       Krankheit = sum(.$Krankheit),
+                       Anderes = sum(.$Anderes))) %>%
   as.matrix() %>%
   t()
 

@@ -11,7 +11,7 @@ library(reshape2)
 
 load_file <- function(school) {
   
-  df <- read_delim(paste0("data-raw/palas/", school, ".csv"), delim = ";")[ ,1:33][ ,-c(1,4,5)] %>%
+  df <- read_delim(paste0("data-raw/palas/", school, ".csv"), delim = ",")[ ,1:33][ ,-c(1,4,5)] %>%
     select(-`SO2 [ppm]`, -`NO2 [ppm]`, -`O3 [ppm]`, -`CO [ppm]`) %>%
     mutate(school = ifelse(school == "olten", "School 1", "School 2")) %>%
     select(school, everything()) %>%
@@ -21,7 +21,7 @@ load_file <- function(school) {
                 "cn1cm", "m1mum", "m2mum", "m3mum", 
                 "x10dcnmum", "x16dcnmum", "x50dcnmum", "x84dcnmum", "x90dcnmum",
                 "cn1m3", "pia1m3", "tc", "phpa", "rh", "qipalas", "infectionrisk")) %>%
-      mutate(date = as.Date(date, format = "%d.%m.%Y")) %>%
+      mutate(date = as.Date(date, format = "%d.%m.%y")) %>%
       mutate(weekday = weekdays(date)) %>%
       mutate(week = as.numeric(strftime(date, format = "%V"))) %>%
       filter(!(weekday %in% c("Saturday", "Sunday"))) %>%
@@ -45,8 +45,8 @@ df <- rbind(olten, trimbach) %>%
                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T, 
                             ifelse(school == "School 2" & week %in% c(6,12), T, F))) %>%
-  mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air filter", "None")),
-         intervention = factor(intervention, levels = c("Mask mandate", "None", "Air filter"))) 
+  mutate(intervention = ifelse(maskmandate==1, "Mask mandate", ifelse(airfilter==1, "Air cleaner", "No intervention")),
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner"))) 
 
 
 #### Filter ####
@@ -92,8 +92,6 @@ ggplot(mapping = aes(x = time, y = co2ppm, color = factor(week))) +
 
 
 #### Variable Subset ####
-
-# TODO: select variables for further analysis?
 
 df_full <- df_full %>%
   select(school, class, date, week, weekday, time, no_school, no_class, maskmandate, airfilter, intervention, everything())

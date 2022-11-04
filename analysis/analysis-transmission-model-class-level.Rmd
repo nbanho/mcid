@@ -21,13 +21,15 @@ source("../utils/epi.r")
 source("../utils/bayes.R")
 source("../utils/plotting.R")
 source("../utils/tex.R")
+source("../helper/settings.r")
 ```
 
 
 ## Data
 
 ```{r}
-col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", "School 2 Study", "School 2 Control")
+col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", 
+               "School 2 Study", "School 2 Control")
 names(col_order) <- 1:5
 J <- length(col_order)
 
@@ -41,7 +43,7 @@ full_df <- readRDS("../data-clean/redcap-full-range.rds")
 maskmandate_dates <- full_df %>%
   group_by(school_class) %>%
   arrange(date) %>%
-  filter(intervention == "None") %>%
+  filter(intervention == "No intervention") %>%
   slice(1) %>%
   ungroup() %>%
   select(school_class, date, day) %>%
@@ -51,105 +53,64 @@ maskmandate_dates <- full_df %>%
 airfilter_dates <- full_df %>%
   group_by(school_class) %>%
   arrange(date) %>%
-  filter(intervention == "Air filter") %>%
+  filter(intervention == "Air cleaner") %>%
   slice(1) %>%
   ungroup() %>%
   select(school_class, date, day) %>%
-  mutate(intervention = "Air\nfilter")
+  mutate(intervention = "Air\ncleaner")
 
 intervention_dates <- rbind(maskmandate_dates, airfilter_dates) %>%
   mutate(start_day = ifelse(intervention == "Mask\nmandate", -Inf, day),
-         end_day = ifelse(intervention == "Air\nfilter", Inf, day),
-         intervention = factor(intervention, levels = c("Mask\nmandate", "Air\nfilter")),
+         end_day = ifelse(intervention == "Air\ncleaner", Inf, day),
+         intervention = factor(intervention, levels = c("Mask\nmandate", "Air\ncleaner")),
          x = ifelse(intervention == "Mask\nmandate", 7, 45)) 
 ```
 
 
-## Descriptives
-
-```{r}
-df %>%
-  select(school, class, day, cum_cases, n_class) %>%
-  melt(c("school", "class", "day")) %>%
-  ggplot(aes(x = day, y = value, color = class, linetype = variable)) +
-  geom_path() +
-  facet_wrap(~ school) +
-  scale_y_continuous(expand= expansion(add = c(0,0.5))) +
-  scale_x_continuous(expand = c(0,0))
-
-df %>%
-  ggplot(aes(x = new_cases)) +
-  geom_histogram()
-  
-
-df %>%
-  select(school, class, day, prop_absences) %>%
-  melt(c("school", "class", "day")) %>%
-  ggplot(aes(x = day, y = value, color = class)) +
-  geom_line() +
-  facet_wrap(~ school) +
-  scale_y_continuous(expand= c(0,0), limits = c(0,1)) +
-  scale_x_continuous(expand = c(0,0))
-
-df %>%
-  ggplot(aes(x = prop_absences)) +
-  geom_histogram()
-
-r_est %>%
-  filter(between(date, min(df$date), max(df$date))) %>%
-  ggplot(aes(x = date)) +
-  geom_line(aes(y = median_R_mean)) +
-  geom_line(aes(y = median_R_mean + median_R_SD), linetype = "dashed") +
-  geom_line(aes(y = median_R_mean - median_R_SD), linetype = "dashed") +
-  geom_vline(data = intervention_dates, mapping = aes(xintercept = date), linetype = "dotted", color = "red") +
-  geom_hline(aes(yintercept = 1.0), linetype = "dotted", color = "blue")
-```
+<!-- ## Simulation -->
 
 
-## Simulation
+<!-- ```{r} -->
+<!-- set.seed(12345) -->
+
+<!-- S <- 12 -->
+<!-- D <- 52 + S -->
+<!-- pop <- 24 -->
+<!-- pin <- vp(D+S, F, p_in) -->
+<!-- alpha <- -4 -->
 
 
-```{r}
-set.seed(12345)
+<!-- newI <- c() -->
+<!-- newN <- c() -->
+<!-- SU <- c() -->
+<!-- cumI <- c() -->
+<!-- cumN <- c() -->
 
-S <- 12
-D <- 52 + S
-pop <- 24
-pin <- vp(D+S, F, p_in)
-alpha <- -4
+<!-- for (i in 1:1) { -->
+<!--   newI[1] <- rexp(1, 1) -->
+<!--   cumI[1] <- newI[1] -->
+<!--   SU[1] <- pop - cumI[1] -->
+<!--   newN[1] <- sum(newI[1] * tail(rev(pin), 1)) -->
+<!--   cumN[1] <- newN[1] -->
+<!--   for (d in 2:D) { -->
+<!--     newI[d] <- invlogit(alpha) * SU[d-1] -->
+<!--     cumI[d] <- cumI[d-1] + newI[d] -->
+<!--     SU[d] <- pop - cumI[d] -->
+<!--     newN[d] <- sum(newI[1:d] * tail(rev(pin), d)) -->
+<!--     cumN[d] <- cumN[d-1] + newN[d] -->
+<!--   } -->
+<!-- } -->
 
+<!-- simDat <- data.frame(day = 1:D, -->
+<!--                      infections = cumI, -->
+<!--                      cases = cumN, -->
+<!--                      susceptibles = SU) -->
 
-newI <- c()
-newN <- c()
-SU <- c()
-cumI <- c()
-cumN <- c()
-
-for (i in 1:1) {
-  newI[1] <- rexp(1, 1)
-  cumI[1] <- newI[1]
-  SU[1] <- pop - cumI[1]
-  newN[1] <- sum(newI[1] * tail(rev(pin), 1))
-  cumN[1] <- newN[1]
-  for (d in 2:D) {
-    newI[d] <- invlogit(alpha) * SU[d-1]
-    cumI[d] <- cumI[d-1] + newI[d]
-    SU[d] <- pop - cumI[d]
-    newN[d] <- sum(newI[1:d] * tail(rev(pin), d))
-    cumN[d] <- cumN[d-1] + newN[d]
-  }
-}
-
-simDat <- data.frame(day = 1:D,
-                     infections = cumI,
-                     cases = cumN,
-                     susceptibles = SU)
-
-simDat %>%
-  melt("day") %>%
-  ggplot(aes(x = day, y = value, color = variable)) +
-  geom_line()
-```
+<!-- simDat %>% -->
+<!--   melt("day") %>% -->
+<!--   ggplot(aes(x = day, y = value, color = variable)) + -->
+<!--   geom_line() -->
+<!-- ``` -->
 
 ## Additional Priors
 
@@ -313,7 +274,7 @@ av_inf_air <- tidy_draws.CmdStanMCMC_mat(tmFit, "avoided_infections_Air") %>%
   mutate(school_class = recode(school_class, !!! col_order),
          school_class = factor(school_class, levels = col_order),
          day = day - sDF_smpl$S,
-         variable = "Air filter")
+         variable = "Air cleaner")
 
 rbind(av_inf_masks, av_inf_air) %>%
   group_by(school_class, variable, day) %>%
@@ -332,7 +293,7 @@ rbind(av_inf_masks, av_inf_air) %>%
 
 ```{r}
 # new cases
-new_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_new_cases") %>%
+new_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "estimated_new_cases") %>%
   rename(day = row,
          school_class = col) %>%
   mutate(school_class = recode(school_class, !!! col_order),
@@ -340,14 +301,14 @@ new_N <- tidy_draws.CmdStanMCMC_mat(tmFit, "mu_new_cases") %>%
          day = day - sDF_smpl$S) 
 
 new_N_week <- new_N %>%
-  filter(day > 0) %>%
+  #filter(day > 0) %>%
   left_join(df_smpl %>% select(school_class, week, day, no_school, intervention)) %>%
   filter(!no_school) %>%
   group_by(school_class, intervention, draw) %>%
-  summarize(value = sum(value)) %>%
+  summarize(value = sum(value, na.rm = T)) %>%
   ungroup() %>%
   group_by() %>%
-  mutate(intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter")))
+  mutate(intervention = factor(intervention, levels = c("None", "Mask mandate", "Air cleaner")))
 
 new_N_week %>%
   ggplot(aes(y = intervention, x = value)) +
@@ -385,7 +346,14 @@ est_results <- meta_dat %>%
   select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) %>%
   group_by(variable) %>%
   summarize_all(median) %>%
-  ungroup() %>%
+  ungroup() 
+
+est_results %>% 
+  filter(variable == c("theta_M", "theta_A")) %>%
+  select(-ess_bulk,-rhat) %>%
+  mutate_if(is.double, exp)
+  
+est_results <- est_results %>%
   mutate_if(is.numeric, function(x) tex_sign(round_k(x)))
 
 variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "omega", "mu_p_in", "sigma_p_in", 
@@ -484,7 +452,7 @@ cum_inc_pl <- ggplot(mapping = aes(x = day)) +
   facet_wrap(~ school_class) +
   scale_x_continuous(expand = c(0,0), breaks = c(-11, seq(1, 51, 10))) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(y = "Cumulative incidence", color = "", fill = "", linetype = "", title = "b") +
+  labs(y = "Estimated number of students", color = "", fill = "", linetype = "", title = "b") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.position = "bottom",
         panel.spacing = unit(1, "lines"), plot.title = element_text(hjust = 0))
@@ -506,19 +474,26 @@ new_inc_obs <- meta_dat %>%
   group_by(school_class, day) %>% 
   median_qi(.width = .95) %>%
   ungroup() %>%
-  mutate(variable = "Observed (simulated)") %>%
+  mutate(variable = "Observed") %>%
   rename(value = new_cases) %>%
   select(school_class, day, variable, value, .lower, .upper)
   
 # coverage
-coverage_df <- new_inc_mean %>%
-  filter(day >= 1) %>%
+coverage_df <- meta_dat %>%
+  mutate(data = lapply(inc_file, readRDS)) %>%
+  unnest() %>%
+  filter(variable == "Estimated cases") %>%
+  filter(.width == .95) %>%
+  group_by(school_class, day) %>%
+  summarize(across(c(value, .lower, .upper), median)) %>%
+  ungroup() %>%
+  #filter(day >= 1) %>%
   mutate(variable = "Estimated") %>%
   rbind(new_inc_obs) %>%left_join(full_df %>%
               select(school_class, day, intervention, no_school)) %>%
   filter(!no_school) %>%
   group_by(school_class, intervention, variable) %>%
-  summarise(across(c(value, .lower, .upper), sum)) %>%
+  summarise(across(c(value, .lower, .upper), sum, na.rm = T)) %>%
   ungroup()
 
 coverage_df_pl <- coverage_df %>%
@@ -527,7 +502,7 @@ coverage_df_pl <- coverage_df %>%
   geom_linerange(mapping = aes(xmin = .lower, xmax = .upper), position = position_dodge(width = .25)) +
   geom_point(mapping = aes(x = value, shape = variable), position = position_dodge(width = .25)) +
   scale_color_manual(values = c("blue", "black")) +
-  labs(x = "Estimated and observed (simulated) number of cases") +
+  labs(x = "Estimated and observed number of cases") +
   theme_bw2() +
   theme(legend.title = element_blank(), axis.title.y = element_blank())
 
@@ -542,8 +517,8 @@ save_plot(coverage_df_pl, pdf_file = "../results/redcap-supp-results-coverage.pd
 avoided_df <- meta_dat %>%
   mutate(data = lapply(avoided_file, readRDS)) %>%
   unnest() %>%
-  mutate(variable = ifelse(variable == "Masks", "Mask mandate", "Air filter"),
-         variable = factor(variable, levels = c("Mask mandate", "Air filter")))
+  mutate(variable = ifelse(variable == "Masks", "Mask mandate", "Air cleaner"),
+         variable = factor(variable, levels = c("Mask mandate", "Air cleaner")))
 
 avoided_df_sum <- avoided_df %>%
   select(dataset, variable, school_class, draw, value) %>%
@@ -597,7 +572,6 @@ avoided_df_sum_by_d <- avoided_df %>%
   arrange(value) %>%
   mutate(order = 1:n()) %>%
   ungroup()
-  
 
 av_inf_tot_by_d_pl <- ggplot(data = avoided_df_sum_by_d, mapping = aes(y = order)) +
   geom_ribbon(mapping = aes(xmin = .lower, xmax = .upper, fill = factor(.width, levels = c(.95, .8, .5)))) +
@@ -606,7 +580,7 @@ av_inf_tot_by_d_pl <- ggplot(data = avoided_df_sum_by_d, mapping = aes(y = order
   facet_wrap(~ variable) +
   scale_fill_brewer() +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x = "Estimated number of avoided infections for each simulated dataset", fill = "CrI", alpha = "CrI") +
+  labs(x = "Estimated number of avoided infections", fill = "CrI", alpha = "CrI") +
   theme_bw2() +
   theme(axis.title.y = element_blank(), plot.title = element_text(hjust = 0), legend.position = "none",
         axis.text.y = element_blank(), axis.ticks.y = element_blank())

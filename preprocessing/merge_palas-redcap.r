@@ -5,7 +5,9 @@ library(tidyverse)
 
 #### Clean data ####
 
-cases <- read.csv("data-clean/redcap.csv")
+cases <- read.csv("data-clean/redcap-cases.csv")
+absences <- read.csv("data-clean/redcap-absences.csv")
+redcap_full <- readRDS("data-clean/redcap-full-range.rds")
 palas <- read.csv("data-clean/palas.csv")
 
 
@@ -14,10 +16,12 @@ palas <- read.csv("data-clean/palas.csv")
 PM <- left_join(palas %>%
                   filter(!no_class) %>%
                   filter(!no_school), 
-                cases %>% 
-                  filter(is_study_class) %>%
+                absences %>% 
+                  left_join(redcap_full %>% 
+                              select(school, class, no_school)) %>%
                   filter(!no_school) %>%
-                  select("school", "class", "date", "n_class", "n_tot_absent"), 
+                  filter(class != "Control") %>%
+                  select(-no_school), 
                 by = c("school", "class", "date")) 
 
 
@@ -44,10 +48,10 @@ p <- 8 # Emmeric et al
 
 PM <- PM %>%
   mutate(f = (co2ppm - Co) / Ca,
-         n_room = n_class - n_tot_absent,
+         n_room = n_class - n_absent,
          f0 = f * ((n_room - 1) / n_room),
          rav = p * f0) %>%
-  select(school, class, date, week, weekday, time, no_class, intervention, airfilter, maskmandate, n_class, n_tot_absent, n_room, everything())
+  select(school, class, school_class, date, week, weekday, time, intervention, airfilter, maskmandate, n_class, n_absent, n_room, everything())
 
 
 write.csv(PM, file = "data-clean/left-palas-redcap.csv", row.names = F)

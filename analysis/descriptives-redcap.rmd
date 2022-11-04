@@ -21,6 +21,7 @@ library(xtable)
 
 source("../utils/epi.r")
 source("../utils/plotting.r")
+source("../helper/settings.r")
 ```
 
 
@@ -59,7 +60,7 @@ sim_modeling_df <- data.frame(folders = list.files("../fitted-models/multiverse"
 ### Total cases
 
 ```{r}
-total_freq_pl <- sim_df  %>%
+total_freq <- sim_df  %>%
   left_join(full_df %>% 
               rename(date_start = date) %>%
               select(school, class, date_start, intervention)) %>%
@@ -69,13 +70,21 @@ total_freq_pl <- sim_df  %>%
   group_by(school, class, intervention) %>%
   summarise(n = mean(n)) %>%
   ungroup() %>%
-  mutate(intervention = factor(intervention, levels = rev(c("None", "Mask mandate", "Air filter")))) %>%
+  mutate(intervention = factor(intervention, levels = rev(levels(intervention))),
+         class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control"))) 
+
+total_freq %>% 
+  group_by(intervention) %>% 
+  summarise(n = round(sum(n), 1)) %>%
+  ungroup()
+
+total_freq_pl <- total_freq %>%
   ggplot(aes(x = class, y = n, fill = intervention)) +
-  geom_bar(position = "stack", stat = "identity", width = .5) +
-  scale_fill_manual(values = rev(c("black", cbPalette[1:2]))) +
+  geom_bar(position = "stack", stat = "identity", width = .5, alpha = .75) +
+  scale_fill_manual(values = rev(intervention_col)) +
   facet_wrap(~ school, scales = "free_x")  +
   scale_y_continuous(expand = expansion(add = c(0., 0.75))) +
-  labs(x = "Class", y = "Expected number of cases", title = "a") +
+  labs(x = "Class", y = "Total number of cases", title = "a") +
   theme_bw2() +
   theme(legend.position = "right", plot.title = element_text(hjust = 0),
         legend.title = element_blank(), axis.title.x = element_blank())
@@ -95,16 +104,17 @@ cases_time_pl <- sim_modeling_df %>%
   mutate(intervention = as.character(intervention), 
          intervention = ifelse(weekend == 1, "Weekend", ifelse(no_school, "Vacation", intervention)),
          intervention = ifelse(school == "School 2" & date >= as.Date("2022-03-19"), "", intervention),
-         intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter", "Vacation", "Weekend", "")),
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner", 
+                                                        "Vacation", "Weekend", "")),
          school_class = factor(school_class, col_order)) %>%
   ggplot(aes(x = date, y = new_cases)) +
   geom_step() +
   geom_tile(aes(y = 0, height = Inf, fill = intervention), alpha = .2) +
   facet_wrap(~ school_class, ncol = 1) +
-  scale_fill_manual(values = c("black", cbPalette[1:4], "white")) +
+  scale_fill_manual(values = c(intervention_col, cbPalette[3:4], "white")) +
   scale_x_date(expand = c(0,0)) +
   scale_y_continuous(expand = expansion(add = c(0, .1))) +
-  labs(y = "Expected number of new cases", title = "b") +
+  labs(y = "Number of new cases", title = "b") +
   theme_bw2() +
   theme(legend.title = element_blank(), axis.title.x = element_blank())
 
@@ -117,7 +127,8 @@ ggsave(plot = descriptives_pl, filename = "../results/redcap-descriptives.pdf", 
 ### Comparing sim
 
 ```{r}
-case_lab <- c("Confirmed (positive test result)", "Confirmed (isolation)", "Suspected (known symptoms)", "Suspected (unknown symptoms)")
+case_lab <- c("Confirmed (positive test result)", "Confirmed (isolation)", 
+              "Suspected (known symptoms)", "Suspected (unknown symptoms)")
 names(case_lab) <- c("confirmed", "isolated", "symptomatic", "unknown")
 
 new_df <- df %>%
@@ -135,15 +146,18 @@ comp_sim_pl <- sim_modeling_df %>%
   mutate(school_class = factor(school_class, col_order)) %>%
   ggplot(aes(x = date, y = new_cases)) +
   geom_bar(data = new_df, mapping = aes(fill = suspected), stat = "identity") +
-  geom_step() +
+  geom_step(aes(color = "Expected cases after probabilistic simulation")) +
   facet_wrap(~ school_class, ncol = 1) +
-  scale_fill_manual(values = (c(RColorBrewer::brewer.pal(9, "Purples")[c(6,4)], RColorBrewer::brewer.pal(9, "Greens")[c(6,4)])),
+  scale_fill_manual(values = (c(RColorBrewer::brewer.pal(9, "Purples")[c(6,4)], 
+                                RColorBrewer::brewer.pal(9, "Greens")[c(6,4)])),
                     limits = case_lab) +
+  scale_color_manual(values = "black") +
   scale_x_date(expand = c(0,0)) +
   scale_y_continuous(expand = expansion(add = c(0, .1))) +
-  labs(y = "Expected and observed number of new cases") +
+  labs(y = "Number of new cases") +
   theme_bw2() +
-  theme(legend.title = element_blank(), axis.title.x = element_blank(), legend.position = "bottom")
+  theme(legend.title = element_blank(), axis.title.x = element_blank(), legend.position = "bottom",
+        legend.box = "vertical") 
 
 comp_sim_pl
 
@@ -153,7 +167,8 @@ save_plot(comp_sim_pl, pdf_file = "../results/redcap-supp-descriptives.pdf", w =
 ### Table Time Series
 
 ```{r}
-case_lab <- c("Confirmed (positive test result)", "Confirmed (isolation)", "Suspected (known symptoms)", "Suspected (unknown symptoms)")
+case_lab <- c("Confirmed (positive test result)", "Confirmed (isolation)", 
+              "Suspected (known symptoms)", "Suspected (unknown symptoms)")
 names(case_lab) <- c("confirmed", "isolated", "symptomatic", "unknown")
 
 tbl <- df %>%
@@ -208,12 +223,22 @@ df %>%
          across(c(confirmed, isolated, symptomatic, unknown), ~ ifelse(.x %>% is.na(), 0, .x)),
          total = confirmed + isolated + symptomatic + unknown)  %>%
   select(school, class, total, confirmed, isolated, symptomatic, unknown) %>%
+  bind_rows(data.frame(school = "Total",
+                       class = "Total",
+                       total = sum(.$total),
+                       confirmed = sum(.$confirmed),
+                       isolated = sum(.$isolated),
+                       symptomatic = sum(.$symptomatic),
+                       unknown = sum(.$unknown))) %>%
+  mutate(confirmed = confirmed + isolated,
+         suspected = symptomatic + unknown) %>%
+  select(school, class, confirmed, suspected, total) %>%
   as.matrix() %>%
   t()
 ```
 
 
-### Molecular data
+### Molecular table
 
 ```{r}
 cases <- df %>%
@@ -293,12 +318,17 @@ cases_air <- tibble(
   study_week = c(1:8, 1:8),
   `Saliva` = c(1, 2, 0, 2, 6, 1, 0, 12,
                1, 0, 2, 0, 1, 3, 0, 7),
-  `Air` = c(0, 0, 0, 2, 0, 0, 2, 4, 
+  `Air samples` = c(0, 0, 0, 2, 0, 0, 2, 4, 
                     1, 3, 0, 0, 1, 0, 0, 5),
-  `Air filter 1` = c(rep("", 7), 2, 
+  `\\hphantom{00}Copies/l (Vivas)` = c("0", "0", "0", "2.46", "0", "0", "0.36", "",
+                           "1.27", "2.68", "0", "0", "2.07", "0", "0", "") ,
+  `\\hphantom{00}Copies/l (Coriolis)` = c("0", "0", "0", "0", "0", "0", "0.12", "",
+                              "0", "0.16", "0", "0", "0", "0", "0", ""),
+  `Air samples, filter 1` = c(rep("", 7), 2, 
                    rep("", 7), 4),
-  `Air filter 2` = c(rep("", 7), 0, 
-                   rep("", 7), 3)
+  `Air samples, filter 2` = c(rep("", 7), 0, 
+                   rep("", 7), 3),
+  
 )
 
 cases_mol <- left_join(left_join(absences, cases), cases_air) 
@@ -334,4 +364,63 @@ cases_mol %>%
     include.rownames = F,
     only.contents = T,
     hline.after = c(1,4))
+```
+
+
+### Molecular figure
+
+```{r}
+cases_mol_sum <- cases_mol %>%
+  select(matches(c("school", "week", "Saliva", "Air samples", "Vivas"))) %>%
+  select(-matches("filter")) %>%
+  set_names(c("school", "study_week", "Saliva", "Air", "vivas")) %>%
+  filter(study_week < 8) %>%
+  mutate(vivas = as.numeric(vivas)) %>%
+  mutate(intervention = ifelse(school == "School 1", ifelse(study_week <= 2, "Mask mandate",
+                                                            ifelse(study_week <= 5, "No intervention",
+                                                                   "Air cleaner")),
+                               ifelse(study_week <= 4, "Mask mandate", 
+                                      ifelse(study_week <= 5, "No intervention",
+                                             "Air cleaner"))),
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner"))) %>%
+  group_by(school, intervention) %>%
+  summarize(across(c(Saliva, Air, vivas), mean, na.rm = T)) %>%
+  ungroup() 
+  
+
+mol_samples_pl <- cases_mol_sum %>%
+  select(-vivas) %>%
+  melt(c("school", "intervention")) %>%
+  mutate(variable = factor(variable, levels = c("Air", "Saliva"))) %>%
+  ggplot(aes(x = as.integer(intervention), y = value, color = school, linetype = variable)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
+  scale_y_continuous(limits = c(0, 3)) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
+  labs(y = "Positive samples per week", title = "a") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank())
+
+mol_samples_pl
+
+mol_copies_pl <- cases_mol_sum %>%
+  select(-Air, -Saliva) %>%
+  ggplot(aes(x = as.integer(intervention), y = vivas, color = school)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
+  scale_y_continuous(limits = c(0, 3)) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
+  labs(y = "Copies/l per week", title = "b") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), legend.title = element_blank(), legend.position = "none", 
+        plot.margin = unit(c(5.5, 10, 5.5, 5.5), units = "pt"))
+
+mol_copies_pl
+
+descriptives_mol_pl <- arrangeGrob(mol_samples_pl, mol_copies_pl, widths = c(9, 7),  nrow = 1)
+ggsave(plot = descriptives_mol_pl, 
+       filename = "../results/molecular-descriptives.pdf", 
+       width = 16 / cm(1), height = 6 / cm(1))
 ```

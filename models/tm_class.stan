@@ -119,27 +119,35 @@ model {
 }
 
 generated quantities {
-  // infections
+  // expected infections
   matrix[DS,L] susceptibles_base = rep_matrix(0., DS, L);
   matrix[DS,L] logit_prop_infections_base = rep_matrix(0., DS, L);
   matrix[DS,L] mu_new_infections_base = rep_matrix(0., DS, L);
   matrix[DS,L] mu_cum_infections_base = rep_matrix(0., DS, L);
-  // infections without masks
+  // expected infections without masks
   matrix[DS,L] susceptibles_Masks = rep_matrix(0., DS, L);
   matrix[DS,L] logit_prop_infections_Masks = rep_matrix(0., DS, L);
   matrix[DS,L] mu_new_infections_Masks = rep_matrix(0., DS, L);
   matrix[DS,L] mu_cum_infections_Masks = rep_matrix(0., DS, L);
   matrix[DS,L] avoided_infections_Masks = rep_matrix(0., DS, L);
-  // infections without airfilter
+  // expected infections without airfilter
   matrix[DS,L] susceptibles_Air = rep_matrix(0., DS, L);
   matrix[DS,L] logit_prop_infections_Air = rep_matrix(0., DS, L);
   matrix[DS,L] mu_new_infections_Air = rep_matrix(0., DS, L);
   matrix[DS,L] mu_cum_infections_Air = rep_matrix(0., DS, L);
   matrix[DS,L] avoided_infections_Air = rep_matrix(0., DS, L);
+  
+  // estimated cases
+  matrix[DS,L] estimated_new_cases;
 
   // log-likelihood
   matrix[D,L] log_lik;
+  
+  
   for (l in 1:L) {
+    for (d in 1:DS) {
+      estimated_new_cases[d,l] = neg_binomial_2_rng(mu_new_cases[d,l], phi_N);
+    }
     for (d in 1:D) {
       log_lik[d,l] = neg_binomial_2_lpmf(new_cases[d,l] | mu_new_cases[S+d,l], phi_N);
     }

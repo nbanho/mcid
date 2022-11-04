@@ -25,6 +25,7 @@ library(xtable)
 
 source("../utils/plotting.R")
 source("../utils/tex.R")
+source("../helper/settings.r")
 ```
 
 
@@ -33,7 +34,7 @@ source("../utils/tex.R")
 ```{r}
 df <- read_csv("../data-clean/left-palas-redcap.csv") %>%
   mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
-         intervention = factor(intervention, levels = c("None", "Mask mandate", "Air filter")),
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner")),
          n_room = n_room / n_class)
   
 
@@ -65,16 +66,22 @@ names(vars_labels_no_units) <- vars
 ## Descriptives
 
 ```{r}
+df_daily %>%
+  group_by(intervention) %>%
+  summarise(across(c(co2ppm, cn1cm), ~ paste(round(mean(.x)), round(sd(.x)), sep = " +/- ")),
+            across(c(pm1mugm, pm4mugm), ~ paste(round(mean(.x), 1), round(sd(.x), 1), sep = " +/- ")))
+
 boxplots <- df_daily %>%
   select(school, intervention, co2ppm, rh, rav, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm) %>%
   melt(c("school", "intervention")) %>%
   ggplot(aes(color = intervention, y = value, x = school)) +
   facet_wrap(~ variable, scales = "free_y", ncol = 2, labeller = as_labeller(vars_labels, label_parsed)) +
   geom_boxplot(outlier.size = 1) +
-  scale_color_manual(values = c("black", cbPalette[1:2])) +
+  scale_color_manual(values = intervention_col) +
   labs(color = "Intervention") +
   theme_bw2() +
-  theme(legend.position = "bottom", axis.title = element_blank())
+  theme(legend.position = "bottom", axis.title = element_blank(), 
+        legend.title = element_blank())
 
 boxplots
 
@@ -86,10 +93,11 @@ boxplots_main <- df_daily %>%
   ggplot(aes(color = intervention, y = value, x = variable)) +
   facet_wrap(~ variable, scales = "free", nrow = 1, labeller = as_labeller(vars_labels, label_parsed)) +
   geom_boxplot(outlier.size = 1) +
-  scale_color_manual(values = c("black", cbPalette[1:2])) +
+  scale_color_manual(values = intervention_col) +
   labs(color = "Intervention", title = "a") +
   theme_bw2() +
-  theme(legend.position = "bottom", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  theme(legend.position = "bottom", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.title = element_blank())
 
 boxplots_main
 
@@ -108,22 +116,17 @@ draws <- list()
 
 for (i in 1:length(vars)) {
   f <- as.formula(paste0(vars[[i]], "~ intervention + school + n_room"))
-  m <- stan_glm(f, data = df_daily_within, seed = seed0)
-  # coefs[[i]] <- c(tex_sign(round_k(coef(m)["interventionMask mandate"])), tex_sign(round_k(coef(m)["interventionAir filter"])))
-  # ci95 <- posterior_interval(m)
-  # ci95_mask <- sapply(ci95[row.names(ci95) == "interventionMask mandate"], function(x) tex_sign(round_k(x)))
-  # ci95_mask <- paste0("[", ci95_mask[1], "; ", ci95_mask[2], "]")
-  # ci95_air <- sapply(ci95[row.names(ci95) == "interventionAir filter"], function(x) tex_sign(round_k(x)))
-  # ci95_air <- paste0("[", ci95_air[1], "; ", ci95_air[2], "]")
-  # intervals[[i]] <- c(ci95_mask, ci95_air)
+  m <- stan_glm(f, data = df_daily_within %>% 
+                  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))), 
+                seed = seed0)
   draws[[i]] <- as.data.frame(m)
 }
 
 
 draws_filt <- do.call(rbind, draws) %>%
   mutate(outcome = factor(rep(vars, each = nrow(draws[[i]])), levels = rev(vars))) %>%
-  set_names(c("Interceot", "Mask mandate", "Air filter", "School", "InClass", "Sigma", "outcome")) %>%
-  select(outcome, `Mask mandate`, `Air filter`) %>%
+  set_names(c("Interceot", "Mask mandate", "Air cleaner", "School", "InClass", "Sigma", "outcome")) %>%
+  select(outcome, `Mask mandate`, `Air cleaner`) %>%
   melt("outcome") 
 
 # all for supplements
@@ -137,11 +140,42 @@ effects_env <- draws_filt %>%
   scale_y_discrete(labels = scales::parse_format()) +
   geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "bottom")
+  theme(axis.title.y = element_blank(), legend.position = "bottom", legend.title = element_blank())
 
 effects_env
 
 save_plot(effects_env, "../results/palas-supp-results.pdf", w = 12, h = 11)
+
+# supplementary table
+effects_tbl <- draws_filt %>%
+  mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
+         outcome = factor(outcome, levels = rev(vars_labels_no_units))) %>%
+  rename(intervention = variable) %>%
+  group_by(outcome, intervention) %>%
+  mean_qi() %>%
+  ungroup() %>%
+  filter(.width == .95) %>%
+  select(outcome, intervention, value, .lower, .upper) %>%
+  melt(c("outcome", "intervention")) %>%
+  dcast(outcome ~ intervention + variable) %>%
+  mutate_if(is.numeric, round_k) %>%
+  mutate(across(-outcome, tex_sign)) %>%
+  arrange(-row_number()) %>%
+  mutate(outcome = c("CO$_2$", "RH", "RAV", "CN", 
+                     "PM$_{\\text{Total}}$", "PM$_{1}$", "PM$_{2.5}$", "PM$_{4}$"),
+         space = "") %>%
+  select(outcome, matches("Mask"), space, matches("Air")) %>%
+  as.matrix() %>%
+  xtable() %>%
+  print.xtable(
+    file = "../results/palas-supp-estimation-results.tex",
+    type = "latex",
+    sanitize.text.function = identity,
+    include.colnames = F,
+    include.rownames = F,
+    only.contents = T,
+    hline.after = NULL)
+
 
 
 # selected for manuscript
@@ -155,7 +189,8 @@ effects_env_main <- draws_filt %>%
   scale_color_manual(values = cbPalette) +
   geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "bottom", axis.ticks.y = element_blank(), axis.text.y = element_blank())
+  theme(axis.title.y = element_blank(), legend.position = "bottom", axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+        legend.title = element_blank())
 
 effects_env_main
 
