@@ -196,7 +196,7 @@ infectious_sub_pl <- infectious_sub %>%
   ggplot(aes(x = class, color = intervention, y = I)) +
   geom_boxplot() +
   scale_color_manual(values = intervention_col) +
-  labs(y = "Expected number of infectious students", title = "b") +
+  labs(y = "Estimated average number\nof infectious students", title = "b") +
   theme_bw2() +
   theme(legend.position = "none", axis.title.x = element_blank(), legend.title = element_blank())
 
@@ -211,7 +211,7 @@ Use the number of students in the class from this study
 ncontacts <- palas %>%
   group_by(school, class, date, intervention) %>%
   slice(1) %>%
-  mutate(n = n_room - 1) %>%
+  mutate(n = n_room) %>% # actually -1, but we count one teacher per class as well
   ungroup() %>%
   select(school, class, date, intervention, n)
 ```
@@ -229,8 +229,8 @@ ncontacts_pl <- ncontacts %>%
 
 ncontacts_pl
 
-comb_input_pl <- arrangeGrob(rebAirFrac_pl, infectious_sub_pl, ncontacts_pl, widths = c(4.4, 4.4, 7.2), ncol = 3)
-ggsave(plot = comb_input_pl, filename = "../results/supp-transrisk-input.pdf", width = 16 / cm(1), height = 6 / cm(1))
+comb_input_pl <- arrangeGrob(rebAirFrac_pl, infectious_sub_pl, ncontacts_pl, widths = c(4.1, 4.7, 7.2), ncol = 3)
+ggsave(plot = comb_input_pl, filename = "../results/supp-transrisk-input.pdf", width = 16 / cm(1), height = 5 / cm(1))
 ```
 
 ### Infectious quanta (q)
@@ -318,7 +318,7 @@ transRisk_pl <- transRisk_sum %>%
   facet_wrap(~ q) +
   labs(color = "Intervention", y = "Average SARS-CoV-2 risk (%)", x = "Hours of exposure") +
   theme_bw2() +
-  theme(legend.position = "bottom", panel.spacing = unit(1, "lines"),
+  theme(legend.position = "top", panel.spacing = unit(1, "lines"),
         plot.margin = unit(c(5.5, 7.5, 5.5, 5.5), "points"),
         legend.title = element_blank())
 

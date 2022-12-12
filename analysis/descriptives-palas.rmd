@@ -80,7 +80,7 @@ boxplots <- df_daily %>%
   scale_color_manual(values = intervention_col) +
   labs(color = "Intervention") +
   theme_bw2() +
-  theme(legend.position = "bottom", axis.title = element_blank(), 
+  theme(legend.position = "top", axis.title = element_blank(), 
         legend.title = element_blank())
 
 boxplots
@@ -96,7 +96,7 @@ boxplots_main <- df_daily %>%
   scale_color_manual(values = intervention_col) +
   labs(color = "Intervention", title = "a") +
   theme_bw2() +
-  theme(legend.position = "bottom", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+  theme(legend.position = "top", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
         legend.title = element_blank())
 
 boxplots_main
@@ -140,7 +140,7 @@ effects_env <- draws_filt %>%
   scale_y_discrete(labels = scales::parse_format()) +
   geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "bottom", legend.title = element_blank())
+  theme(axis.title.y = element_blank(), legend.position = "top", legend.title = element_blank())
 
 effects_env
 
@@ -189,7 +189,7 @@ effects_env_main <- draws_filt %>%
   scale_color_manual(values = cbPalette) +
   geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "bottom", axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+  theme(axis.title.y = element_blank(), legend.position = "top", axis.ticks.y = element_blank(), axis.text.y = element_blank(),
         legend.title = element_blank())
 
 effects_env_main

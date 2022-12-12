@@ -7,6 +7,7 @@ library(LaplacesDemon)
 
 source("utils/plotting.r")
 source("utils/epi.r")
+source("helper/settings.r")
 
 if(!dir.exists('fitted-models/multiverse')) {
   dir.create('fitted-models/multiverse')
@@ -161,11 +162,13 @@ exc_df_limits <- exc_df %>%
   ungroup()
 
 exc_df_pl <- exc_df %>%
+  mutate(school_class = gsub("Study", "Intervention", school_class)) %>%
   ggplot(aes(ymin = -Inf, ymax = p, x = k)) +
   facet_wrap(~ school_class, nrow = 1) +
   geom_ribbon(alpha = .1) +
   geom_line(aes(y = p)) +
-  geom_segment(data = exc_df_limits, mapping = aes(x = k, xend = k, y = 0, yend = p), linetype = "dashed") +
+  geom_segment(data = exc_df_limits %>% mutate(school_class = gsub("Study", "Intervention", school_class)), 
+               mapping = aes(x = k, xend = k, y = 0, yend = p), linetype = "dashed") +
   geom_vline(aes(xintercept = mu), linetype = "dotted", color = "blue") +
   scale_x_continuous(expand = expansion(add = c(0,0)), limits = c(0,1), labels = function(x) x * 100) +
   scale_y_continuous(expand = expansion(add = c(0., .01)), limits = c(0, NA)) +
@@ -307,7 +310,6 @@ for (i in 1:N) {
   saveRDS(modeling_df, paste0(path_i, "sample-modeling-df.rds"))
   
   # create stan data
-  # TODO: count weekend at the beginning and in the middle of vacation as normal (not to model), in contrast to weekend at the end of vacation
   sDF <- list(
     L = J,
     D = nrow(modeling_df) / 5,

@@ -28,14 +28,18 @@ source("../helper/settings.r")
 ## Data
 
 ```{r}
-col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", 
-               "School 2 Study", "School 2 Control")
+col_order <- c("School 1 Intervention (A)", "School 1 Intervention (B)", "School 1 Control", 
+               "School 2 Intervention", "School 2 Control")
 names(col_order) <- 1:5
 J <- length(col_order)
 
-df <- read.csv("../data-clean/redcap-cases.csv")
+df <- read.csv("../data-clean/redcap-cases.csv") %>%
+  mutate(class = recode(class, !!! classes_names),
+         school_class = paste(school, class))
 
-full_df <- readRDS("../data-clean/redcap-full-range.rds")
+full_df <- readRDS("../data-clean/redcap-full-range.rds") %>%
+  mutate(class = recode(class, !!! classes_names),
+         school_class = paste(school, class))
 ```
 
 ```{r}
@@ -177,6 +181,55 @@ ggsave(plot = comb_prior_pin_pl, filename = "../results/redcap-supp-prior-pin.pd
 ```{r}
 S <- round(exp(p_in_mu_m + p_in_sigma_m^2 / 2)) * 2
 ```
+
+
+## Adjustments
+
+```{r}
+adjustments <- readRDS("../fitted-models/multiverse/1/sample-modeling-df.rds") %>%
+  select(school_class, school, class, date, median_R_mean, prop_absences) 
+
+r_pl <- adjustments %>%
+  filter(school_class == school_class[1]) %>%
+  ggplot(aes(x = date, y = median_R_mean)) +
+  geom_line(color = "navyblue") +
+  scale_x_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  labs(y = expression(R[t]), x = "Day") +
+  theme_classic() +
+  theme(axis.title.x = element_text(size = 10), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title.y = element_text(size = 10))
+
+r_pl
+ggsave(file = "../results/adjustments-rt.png", width = 5 / cm(1), h = 3.25 / cm(1))
+
+stud_in_class_pl <- adjustments %>%
+  ggplot(aes(x = date, y = prop_absences, color = school_class)) +
+  geom_step() +
+  scale_x_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  labs(y = "Proportion", x = "Day") +
+  scale_color_brewer(palette = "Set2") +
+  theme_classic() +
+  theme(axis.title.x = element_text(size = 10), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title.y = element_text(size = 10), legend.position = "none")
+
+stud_in_class_pl
+ggsave(file = "../results/adjustments-students-in-class.png", width = 5 / cm(1), h = 3.25 / cm(1))
+
+
+cases_pl <- adjustments %>%
+  filter(school_class == school_class[1]) %>%
+  ggplot(aes(x = date, y = median_R_mean)) +
+  geom_line(color = "navyblue") +
+  scale_x_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  labs(y = expression(R[t]), x = "Day") +
+  theme_classic() +
+  theme(axis.title.x = element_text(size = 10), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title.y = element_text(size = 10))
+```
+
 
 ## Test model
 
@@ -360,18 +413,18 @@ variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "omega", "mu_p_in", "sigma_p_
               "theta_M", "tau", paste0("theta_l[",1:J,"]"),"theta_A",
               "gamma[1]", "gamma[2]")
 variable_name <- c("$\\phi$", 
-                   "$\\alpha_{\\textrm{School 1 Study (A)}}$", 
-                   "$\\alpha_{\\textrm{School 1 Study (B)}}$",
+                   "$\\alpha_{\\textrm{School 1 Intervention (A)}}$", 
+                   "$\\alpha_{\\textrm{School 1 Intervention (B)}}$",
                    "$\\alpha_{\\textrm{School 1 Control}}$", 
-                   "$\\alpha_{\\textrm{School 2 Study}}$", 
+                   "$\\alpha_{\\textrm{School 2 Intervention}}$", 
                    "$\\alpha_{\\textrm{School 2 Control}}$",
                    "$\\omega$",
                    "$\\mu^{p_{IN}}$", "$\\sigma^{p_{IN}}$", 
                    "$\\theta^M$", "$\\tau$",
-                   "$\\theta^M_{\\textrm{School 1 Study (A)}}$", 
-                   "$\\theta^M_{\\textrm{School 1 Study (B)}}$",
+                   "$\\theta^M_{\\textrm{School 1 Intervention (A)}}$", 
+                   "$\\theta^M_{\\textrm{School 1 Intervention (B)}}$",
                    "$\\theta^M_{\\textrm{School 1 Control}}$", 
-                   "$\\theta^M_{\\textrm{School 2 Study}}$", 
+                   "$\\theta^M_{\\textrm{School 2 Intervention}}$", 
                    "$\\theta^M_{\\textrm{School 2 Control}}$",
                    "$\\theta^A$", "$\\gamma^{\\textrm{Absences}}$", 
                    "$\\gamma^{\\textrm{Community} R_t}$")
@@ -402,7 +455,8 @@ xtable::print.xtable(xtable::xtable(est_results),
 new_inc <- meta_dat %>%
   mutate(data = lapply(inc_file, readRDS)) %>%
   unnest() %>%
-  filter(variable == "Infections") 
+  filter(variable == "Infections") %>%
+  mutate(school_class = factor(recode(as.integer(school_class), !!! col_order), levels = col_order))
 
 new_inc_mean <- new_inc %>%
   filter(.width == .95) %>%
@@ -434,7 +488,8 @@ est_I_pl
 cum_inc <- meta_dat %>%
   mutate(data = lapply(inc_file, readRDS)) %>%
   unnest() %>%
-  filter(variable %in% c("Cumulative cases", "Cumulative infections", "Susceptibles")) 
+  filter(variable %in% c("Cumulative cases", "Cumulative infections", "Susceptibles")) %>%
+  mutate(school_class = factor(recode(as.integer(school_class), !!! col_order), levels = c(col_order)))
 
 cum_inc_mean <- cum_inc %>%
   filter(.width == .95) %>%
@@ -454,7 +509,7 @@ cum_inc_pl <- ggplot(mapping = aes(x = day)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(y = "Estimated number of students", color = "", fill = "", linetype = "", title = "b") +
   theme_bw2() +
-  theme(axis.title.x = element_blank(), legend.position = "bottom",
+  theme(axis.title.x = element_blank(), legend.position = "top",
         panel.spacing = unit(1, "lines"), plot.title = element_text(hjust = 0))
 
 cum_inc_pl
@@ -474,9 +529,10 @@ new_inc_obs <- meta_dat %>%
   group_by(school_class, day) %>% 
   median_qi(.width = .95) %>%
   ungroup() %>%
-  mutate(variable = "Observed") %>%
+  mutate(variable = "Estimates from probabilistic simulation") %>%
   rename(value = new_cases) %>%
-  select(school_class, day, variable, value, .lower, .upper)
+  select(school_class, day, variable, value, .lower, .upper) %>%
+  mutate(school_class = recode(as.integer(factor(school_class)), !!! col_order))
   
 # coverage
 coverage_df <- meta_dat %>%
@@ -488,7 +544,8 @@ coverage_df <- meta_dat %>%
   summarize(across(c(value, .lower, .upper), median)) %>%
   ungroup() %>%
   #filter(day >= 1) %>%
-  mutate(variable = "Estimated") %>%
+  mutate(variable = "Estimates from transmission model") %>%
+  mutate(school_class = recode(as.integer(school_class), !!! col_order)) %>%
   rbind(new_inc_obs) %>%left_join(full_df %>%
               select(school_class, day, intervention, no_school)) %>%
   filter(!no_school) %>%
@@ -499,12 +556,12 @@ coverage_df <- meta_dat %>%
 coverage_df_pl <- coverage_df %>%
   ggplot(aes(y = intervention, color = variable)) +
   facet_wrap(~ school_class) + 
-  geom_linerange(mapping = aes(xmin = .lower, xmax = .upper), position = position_dodge(width = .25)) +
-  geom_point(mapping = aes(x = value, shape = variable), position = position_dodge(width = .25)) +
+  geom_errorbar(mapping = aes(xmin = .lower, xmax = .upper), width = .25, position = position_dodge(width = .25)) +
+  geom_point(mapping = aes(x = value, shape = variable, color = variable), size = 2, position = position_dodge(width = .25)) +
   scale_color_manual(values = c("blue", "black")) +
-  labs(x = "Estimated and observed number of cases") +
+  labs(x = "Estimated number of cases") +
   theme_bw2() +
-  theme(legend.title = element_blank(), axis.title.y = element_blank())
+  theme(legend.title = element_blank(), axis.title.y = element_blank(), legend.position = "top")
 
 coverage_df_pl
 save_plot(coverage_df_pl, pdf_file = "../results/redcap-supp-results-coverage.pdf", w = 16, h = 8)
@@ -518,7 +575,8 @@ avoided_df <- meta_dat %>%
   mutate(data = lapply(avoided_file, readRDS)) %>%
   unnest() %>%
   mutate(variable = ifelse(variable == "Masks", "Mask mandate", "Air cleaner"),
-         variable = factor(variable, levels = c("Mask mandate", "Air cleaner")))
+         variable = factor(variable, levels = c("Mask mandate", "Air cleaner")),
+         school_class = recode(as.integer(school_class), !!! col_order))
 
 avoided_df_sum <- avoided_df %>%
   select(dataset, variable, school_class, draw, value) %>%
@@ -544,7 +602,7 @@ av_inf_tot_pl <- avoided_df_sum %>%
   facet_wrap(~ variable) +
   scale_fill_brewer() +
   scale_y_continuous(expand = c(0,0)) +
-  scale_x_continuous(breaks = seq(0, 20, 5)) +
+  scale_x_continuous(breaks = seq(-10, 20, 5)) +
   labs(x = "Estimated number of avoided infections", fill = "CrI", title = "c") +
   theme_bw2() +
   theme(axis.title.y = element_blank(), legend.position = "right", 

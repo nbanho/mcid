@@ -42,6 +42,8 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ",") %>%
 # summary: absences
 
 df %>%
+  # filter teachers
+  filter(!is_teacher) %>%
   select(school, class, date_start, date_end, matches("Absenz")) %>%
   # set maximum date to end of study period
   mutate(date_end = as.Date(ifelse(date_end >= max(date_start), as.character(max(date_start)), as.character(date_end)))) %>%
@@ -98,10 +100,24 @@ df_absent <- df  %>%
 
 df_confirmed <- df %>% 
   filter(`Falls.eine.mikrobiologische.Untersuchung.für.COVID.19.durchgeführt.wurde..was.ergab.das.Testresultat.` 
-         == "Positiv") %>%
+         == "Positiv") 
+
+# special cases
+df_confirmed_teacher <- df_confirmed %>%
+  filter(is_teacher)
+# teacher first in quarantine then in isolation
+df_confirmed_teacher[2,"date_start"] <- df_confirmed_teacher[1,"date_start"] 
+df_confirmed_teacher <- df_confirmed_teacher[-1, ] 
+# teacher in both control and study classes
+df_confirmed_teacher <- df_confirmed_teacher[-3, ] 
+df_confirmed_teacher[2,"class"] <- "Study|Control"
+
+df_confirmed <- df_confirmed %>%
+  filter(!is_teacher) %>%
+  rbind(df_confirmed_teacher) %>%
   select(school, class, is_teacher, date_symptoms, date_start, date_end) %>%
   mutate(suspected = "confirmed") 
-
+  
 
 # Filter isolated
 
