@@ -21,7 +21,9 @@ library(texreg)
 library(gridExtra)
 library(ggpubr)
 library(ggridges)
+library(gg.layers)
 library(xtable)
+library(psych)
 
 source("../utils/plotting.R")
 source("../utils/tex.R")
@@ -32,33 +34,27 @@ source("../helper/settings.r")
 ## Data
 
 ```{r}
-df <- read_csv("../data-clean/left-palas-redcap.csv") %>%
+df <- read_csv("../data-clean/palas.csv") %>%
   mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
-         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner")),
-         n_room = n_room / n_class)
-  
+         intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner"))) 
 
 df_daily <- df %>%
-  group_by(school, date, week, weekday, intervention, maskmandate, airfilter) %>%
-  summarize(across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
-                     pm10mugm, vocmgm, rav, n_room), ~ mean(.x, na.rm = T))) %>%
+  group_by(school, date, week, weekday, intervention) %>%
+  summarize(aer = harmonic.mean(aer), 
+            across(c(n, co2ppm, rh, tc, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ mean(.x, na.rm = T))) %>%
   ungroup() %>%
   group_by(school) %>%
   arrange(date) %>%
   mutate(day = 1:n()) %>%
   ungroup()
 
-df_daily_within <- df_daily %>%
-  group_by(school, weekday) %>%
-  mutate(across(c(co2ppm, rh, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm,
-                     pm10mugm, vocmgm, rav, n_room), ~ (.x - mean(.x)) / sd(.x))) %>%
-  ungroup() 
-
-vars <- c("co2ppm", "rh", "rav", "cn1cm", "pmtotmugm", "pm1mugm", "pm25mugm", "pm4mugm")
-vars_labels <- c("CO[2]~(ppm)", "RH~('%')", "RAV~(l/min)", "CN~(1/cm^3)", 
-                 "PM[Total]~(mu*gm^{-3})", "PM[1]~(mu*gm^{-3})", "PM[2.5]~(mu*gm^{-3})", "PM[4]~(mu*gm^{-3})")
+vars <- c("co2ppm", "rh", "tc", "aer", "rav", "cn1cm", "pm1mugm", "pm25mugm", "pm4mugm", "pm10mugm")
+vars_labels <- c("CO[2]~(ppm)", "Relative~humidity~('%')", "Temperature~(degree*C)", 
+                 "Air~exchange~rate~(changes/h)", "Rebreathed~air~volume~(l/min)",
+                 "CN~(1/cm^3)", "PM[1]~(mu*gm^{-3})", "PM[2.5]~(mu*gm^{-3})", "PM[4]~(mu*gm^{-3})", "PM[10]~(mu*gm^{-3})")
 names(vars_labels) <- vars
-vars_labels_no_units <- c("CO[2]", "RH", "RAV", "CN", "PM[Total]", "PM[1]", "PM[2.5]", "PM[4]")
+vars_labels_no_units <- c("CO[2]", "Relative~humidity", "Temperature", "Air~exchange~rate", "Rebreathed~air~volume",
+                          "CN", "PM[1]", "PM[2.5]", "PM[4]", "PM[10]")
 names(vars_labels_no_units) <- vars
 ```
 
@@ -67,16 +63,20 @@ names(vars_labels_no_units) <- vars
 
 ```{r}
 df_daily %>%
+  summarize(paste(round(mean(co2ppm)), round(sd(co2ppm)), sep = " +/- "))
+
+df_daily %>%
   group_by(intervention) %>%
   summarise(across(c(co2ppm, cn1cm), ~ paste(round(mean(.x)), round(sd(.x)), sep = " +/- ")),
-            across(c(pm1mugm, pm4mugm), ~ paste(round(mean(.x), 1), round(sd(.x), 1), sep = " +/- ")))
+            across(c(pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ paste(round(mean(.x), 1), round(sd(.x), 1), sep = " +/- ")))
 
-boxplots <- df_daily %>%
-  select(school, intervention, co2ppm, rh, rav, cn1cm, pmtotmugm, pm1mugm, pm25mugm, pm4mugm) %>%
+boxplots <- df %>%
+  select(school, intervention, co2ppm, rh, tc, aer, rav, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm) %>%
   melt(c("school", "intervention")) %>%
   ggplot(aes(color = intervention, y = value, x = school)) +
-  facet_wrap(~ variable, scales = "free_y", ncol = 2, labeller = as_labeller(vars_labels, label_parsed)) +
-  geom_boxplot(outlier.size = 1) +
+  facet_wrap(~ variable, scales = "free_y", ncol = 2, dir = "v", labeller = as_labeller(vars_labels, label_parsed)) +
+  #geom_boxplot(outlier.size = 1) +
+  geom_boxplot2(width = 0.8, width.errorbar = 0.1) +
   scale_color_manual(values = intervention_col) +
   labs(color = "Intervention") +
   theme_bw2() +
@@ -88,11 +88,11 @@ boxplots
 save_plot(boxplots, "../results/palas-supp-descriptives.pdf", w = 16, h = 14)
 
 boxplots_main <- df_daily %>%
-  select(school, intervention, co2ppm, cn1cm, pm1mugm, pm4mugm) %>%
+  select(school, intervention, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm) %>%
   melt(c("school", "intervention")) %>%
   ggplot(aes(color = intervention, y = value, x = variable)) +
   facet_wrap(~ variable, scales = "free", nrow = 1, labeller = as_labeller(vars_labels, label_parsed)) +
-  geom_boxplot(outlier.size = 1) +
+  geom_boxplot2(width = 0.8, width.errorbar = 0.1) +
   scale_color_manual(values = intervention_col) +
   labs(color = "Intervention", title = "a") +
   theme_bw2() +
@@ -100,51 +100,60 @@ boxplots_main <- df_daily %>%
         legend.title = element_blank())
 
 boxplots_main
-
 save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 5)
 ```
 
 ## Linear models
 
+<!-- ```{r} -->
+<!-- df_within <- df_daily %>% -->
+<!--   group_by(school, weekday) %>% -->
+<!--   mutate(across(c(n, aer, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ (.x - mean(.x)) / sd(.x))) %>% -->
+<!--   ungroup() %>%  -->
+<!--   mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))) -->
+<!-- ``` -->
+
 ```{r}
+# log data
+df_daily_log <- df_daily %>%
+  mutate(across(c(cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm, n, aer), log)) %>%
+  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner")))
+
 seed0 <- 12345
-
-# Results
-# coefs <- list()
-# intervals <- list()
 draws <- list()
+particle_vars <- c("cn1cm", "pm1mugm", "pm25mugm", "pm4mugm", "pm10mugm")
 
-for (i in 1:length(vars)) {
-  f <- as.formula(paste0(vars[[i]], "~ intervention + school + n_room"))
-  m <- stan_glm(f, data = df_daily_within %>% 
-                  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))), 
-                seed = seed0)
+for (i in 1:length(particle_vars)) {
+  f <- as.formula(paste0(particle_vars[[i]], "~ school + weekday + intervention + n + aer"))
+  m <- stan_glm(f, data = df_daily_log, seed = seed0)
   draws[[i]] <- as.data.frame(m)
 }
 
-
-draws_filt <- do.call(rbind, draws) %>%
-  mutate(outcome = factor(rep(vars, each = nrow(draws[[i]])), levels = rev(vars))) %>%
-  set_names(c("Interceot", "Mask mandate", "Air cleaner", "School", "InClass", "Sigma", "outcome")) %>%
+draws_filt <- lapply(draws, function(D) dplyr::select(D, `interventionMask mandate`, `interventionAir cleaner`))
+draws_filt <- do.call(rbind, draws_filt) %>%
+  mutate(outcome = factor(rep(particle_vars, each = nrow(draws[[i]])), levels = rev(particle_vars))) %>%
+  set_names(c("Mask mandate", "Air cleaner", "outcome")) %>%
   select(outcome, `Mask mandate`, `Air cleaner`) %>%
-  melt("outcome") 
+  melt("outcome") %>%
+  mutate(value = abs(100 * (exp(value) - 1)))
 
-# all for supplements
-effects_env <- draws_filt %>%
-  mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
-         outcome = factor(outcome, levels = rev(vars_labels_no_units))) %>%
-  ggplot(aes(y = outcome, color = variable, x = value)) +
-  stat_pointinterval(point_interval = "mean_qi", position = position_dodge(width = .5), fill = "white", shape = 21, .width = c(.5, .8, .95)) +
-  labs(color = "Intervention", x = "Estimated change in z-score") +
-  scale_color_manual(values = cbPalette) +
-  scale_y_discrete(labels = scales::parse_format()) +
-  geom_vline(aes(xintercept = 0), linetype = "dotted") +
-  theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "top", legend.title = element_blank())
-
-effects_env
-
-save_plot(effects_env, "../results/palas-supp-results.pdf", w = 12, h = 11)
+# # all for supplements
+# effects_env <- draws_filt %>%
+#   mutate(outcome = recode(as.character(outcome), !!! vars_labels_no_units),
+#          outcome = factor(outcome, levels = rev(vars_labels_no_units))) %>%
+#   ggplot(aes(y = outcome, color = variable, x = value)) +
+#   stat_pointinterval(point_interval = "mean_qi", position = position_dodge(width = .5), 
+#                      fill = "white", shape = 21, .width = c(.5, .8, .95)) +
+#   labs(color = "Intervention", x = "Estimated change in z-score") +
+#   scale_color_manual(values = cbPalette) +
+#   scale_y_discrete(labels = scales::parse_format()) +
+#   geom_vline(aes(xintercept = 0), linetype = "dotted") +
+#   theme_bw2() +
+#   theme(axis.title.y = element_blank(), legend.position = "top", legend.title = element_blank())
+# 
+# effects_env
+# 
+# save_plot(effects_env, "../results/palas-supp-results.pdf", w = 12, h = 11)
 
 # supplementary table
 effects_tbl <- draws_filt %>%
@@ -161,8 +170,7 @@ effects_tbl <- draws_filt %>%
   mutate_if(is.numeric, round_k) %>%
   mutate(across(-outcome, tex_sign)) %>%
   arrange(-row_number()) %>%
-  mutate(outcome = c("CO$_2$", "RH", "RAV", "CN", 
-                     "PM$_{\\text{Total}}$", "PM$_{1}$", "PM$_{2.5}$", "PM$_{4}$"),
+  mutate(outcome = c("CN", "PM$_{1}$", "PM$_{2.5}$", "PM$_{4}$", "PM$_{10}$"),
          space = "") %>%
   select(outcome, matches("Mask"), space, matches("Air")) %>%
   as.matrix() %>%
@@ -176,23 +184,22 @@ effects_tbl <- draws_filt %>%
     only.contents = T,
     hline.after = NULL)
 
-
-
 # selected for manuscript
 effects_env_main <- draws_filt %>%
-  filter(outcome %in% c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")) %>%
-  mutate(outcome = factor(outcome, levels = (c("co2ppm", "cn1cm", "pm1mugm", "pm4mugm")))) %>%
+  #filter(outcome %in% c("cn1cm", "pm1mugm", "pm4mugm")) %>%
+  mutate(outcome = factor(outcome, levels = (c("cn1cm", "pm1mugm", "pm25mugm", "pm4mugm", "pm10mugm")))) %>%
   ggplot(aes(y = variable, color = variable, x = value)) +
   stat_pointinterval(point_interval = "mean_qi", fill = "white", shape = 21, .width = c(.5, .8, .95)) +
   facet_wrap(~ outcome, nrow = 1, labeller = as_labeller(vars_labels_no_units, label_parsed)) +
-  labs(color = "Intervention", x = "Estimated change in z-score", title = "b") +
+  labs(color = "Intervention", x = "Estimated reduction (%)", title = "b") +
   scale_color_manual(values = cbPalette) +
-  geom_vline(aes(xintercept = 0), linetype = "dotted") +
+  scale_x_continuous(limits = c(0,100)) +
+  #geom_vline(aes(xintercept = 0), linetype = "dotted") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "top", axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+  theme(axis.title.y = element_blank(), legend.position = "none", 
+        axis.ticks.y = element_blank(), axis.text.y = element_blank(),
         legend.title = element_blank())
 
 effects_env_main
-
-save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 5)
+save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 3)
 ```

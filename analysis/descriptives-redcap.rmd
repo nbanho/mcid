@@ -264,11 +264,10 @@ cases <- df %>%
   ungroup() %>%
   dcast(school + study_week ~ suspected) %>%
   mutate(across(c(confirmed, isolated, symptomatic, unknown), ~ ifelse(.x %>% is.na(), 0, .x)),
-         confirmed = confirmed + isolated) %>%
-  select(school, study_week, confirmed, symptomatic, unknown) %>%
-  rename(Confirmed = confirmed, 
-         `Suspected (known symptoms)` = symptomatic,
-         `Suspected (unknown symptoms)` = unknown)  %>%
+         positive_test_result = confirmed,
+         confirmed = positive_test_result + isolated,
+         suspected = symptomatic + unknown) %>%
+  select(school, study_week, confirmed, positive_test_result, isolated, suspected, symptomatic, unknown) %>%
   group_by(school) %>%
   arrange(study_week) %>%
   mutate(study_week = 1:n()) %>%
@@ -331,29 +330,49 @@ absences <- rbind(absences, absences_mean) %>%
 cases_air <- tibble(
   school = c(rep("School 1", 8), rep("School 2", 8)),
   study_week = c(1:8, 1:8),
-  `Saliva` = c(1, 2, 0, 2, 6, 1, 0, 12,
-               1, 0, 2, 0, 1, 3, 0, 7),
-  `Air samples` = c(0, 0, 0, 2, 0, 0, 2, 4, 
-                    1, 3, 0, 0, 1, 0, 0, 5),
-  `\\hphantom{00}Copies/l (Vivas)` = c("0", "0", "0", "2.46", "0", "0", "0.36", "",
-                           "1.27", "2.68", "0", "0", "2.07", "0", "0", "") ,
-  `\\hphantom{00}Copies/l (Coriolis)` = c("0", "0", "0", "0", "0", "0", "0.12", "",
-                              "0", "0.16", "0", "0", "0", "0", "0", ""),
-  `Air samples, filter 1` = c(rep("", 7), 2, 
-                   rep("", 7), 4),
-  `Air samples, filter 2` = c(rep("", 7), 0, 
-                   rep("", 7), 3),
-  
-)
+  `Saliva samples` = c(21, 21+23, 26, 29, 20, 18, 15, 173,
+                       17, 13+7, 14, 10, 11, 12, 5, 89),
+  `Negative saliva` = NA,
+  `Positive saliva` = c(1, 2, 0, 2, 6, 1, 0, 12,
+                        1, 0, 2, 0, 1, 3, 0, 7),
+  `Air samples` = NA,
+  `Air samples (Vivas)` = c(4, 4, 5, 5, 5, 5, 5, 33,
+                            4, 4, 4, 5, 4, 4, 5, 30),
+  `Air samples (Coriolis)` = c(5, 5, 5, 5, 5, 5, 5, 35,
+                               5, 5, 4, 5, 4, 5, 4, 32),
+  `Negative air` = NA,
+  `Positive air` = c(0, 0, 0, 2, 0, 0, 2, 4, 
+                     1, 3, 0, 0, 1, 0, 0, 5),
+  `Copies/l (Vivas)` = c("0", "0", "0", "2.46", "0", "0", "0.36", "",
+                         "1.27", "2.68", "0", "0", "2.07", "0", "0", "") ,
+  `Copies/l (Coriolis)` = c("0", "0", "0", "0", "0", "0", "0.12", "",
+                            "0", "0.16", "0", "0", "0", "0", "0", ""),
+  `Positive air samples on filter 1` = c(rep("", 7), 2, rep("", 7), 4),
+  `Positive air samples on filter 2` = c(rep("", 7), 0, rep("", 7), 3)
+) %>%
+  mutate(`Negative saliva` = `Saliva samples` - `Positive saliva`,
+         `Air samples` = `Air samples (Vivas)` + `Air samples (Coriolis)`,
+         `Negative air` = `Air samples` - `Positive air`)
 
 cases_mol <- left_join(left_join(absences, cases), cases_air) 
 
-cases_mol %>%
+varnames <- c("No. of students", "Confirmed", "\\hphantom{00}Positive test result", "\\hphantom{00}Isolation",
+              "Suspected", "\\hphantom{00}Known symptoms", "\\hphantom{00}Unknown symptoms",
+              "Saliva samples", "\\hphantom{00}Negative", "\\hphantom{00}Positive", 
+              "Air samples", "\\hphantom{00}Coriolis", "\\hphantom{00}Vivas", "\\hphantom{00}Negative", "\\hphantom{00}Positive", 
+              "\\hphantom{0000}Vivas: Copies/l", "\\hphantom{0000}Coriolis: Copies/l",
+              "Positive air samples on filter 1", "Positive air samples on filter 2")
+
+mol_tbl_1 <- cases_mol %>%
   filter(school == "School 1") %>%
   select(-school) %>%
   melt("study_week") %>%
   dcast(variable ~ study_week) %>%
-  as.matrix() %>%
+  as.matrix() 
+mol_tbl_1[,1] <- varnames
+mol_tbl_1[8,3] <- paste0(mol_tbl_1[8,3],"$^{\\ddag}$")
+
+mol_tbl_1 %>%
   xtable() %>%
   print.xtable(
     file = "../results/redcapr-air-cases-1.tex",
@@ -362,14 +381,18 @@ cases_mol %>%
     include.colnames = F,
     include.rownames = F,
     only.contents = T,
-    hline.after = c(1,4))
+    hline.after = c(1,7,10,17))
 
-cases_mol %>%
+mol_tbl_2 <- cases_mol %>%
   filter(school == "School 2") %>%
   select(-school) %>%
   melt("study_week") %>%
   dcast(variable ~ study_week) %>%
-  as.matrix() %>%
+  as.matrix() 
+mol_tbl_2[,1] <- varnames
+mol_tbl_2[8,3] <- paste0(mol_tbl_2[8,3],"$^{\\ddag}$")
+
+mol_tbl_2 %>%
   xtable() %>%
   print.xtable(
     file = "../results/redcapr-air-cases-2.tex",
@@ -378,7 +401,7 @@ cases_mol %>%
     include.colnames = F,
     include.rownames = F,
     only.contents = T,
-    hline.after = c(1,4))
+    hline.after = c(1,7,10,17))
 ```
 
 
@@ -386,11 +409,13 @@ cases_mol %>%
 
 ```{r}
 cases_mol_sum <- cases_mol %>%
-  select(matches(c("school", "week", "Saliva", "Air samples", "Vivas"))) %>%
-  select(-matches("filter")) %>%
-  set_names(c("school", "study_week", "Saliva", "Air", "vivas")) %>%
+  mutate(`Saliva samples` = ifelse(study_week == 2, `Saliva samples` / 2, `Saliva samples`),
+         share_positive_air = 100 * `Positive air` / `Air samples`,
+         share_positive_saliva = 100 * `Positive saliva` / `Saliva samples`,
+         positive_copies_l = `Copies/l (Vivas)`) %>%
+  select(school, study_week, share_positive_air, share_positive_saliva, positive_copies_l) %>%
   filter(study_week < 8) %>%
-  mutate(vivas = as.numeric(vivas)) %>%
+  mutate(positive_copies_l = as.numeric(positive_copies_l)) %>%
   mutate(intervention = ifelse(school == "School 1", ifelse(study_week <= 2, "Mask mandate",
                                                             ifelse(study_week <= 5, "No intervention",
                                                                    "Air cleaner")),
@@ -398,36 +423,35 @@ cases_mol_sum <- cases_mol %>%
                                       ifelse(study_week <= 5, "No intervention",
                                              "Air cleaner"))),
          intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner"))) %>%
-  group_by(school, intervention) %>%
-  summarize(across(c(Saliva, Air, vivas), mean, na.rm = T)) %>%
+  group_by(intervention) %>%
+  summarize(across(c(share_positive_saliva, share_positive_air, positive_copies_l), mean, na.rm = T)) %>%
   ungroup() 
   
 
 mol_samples_pl <- cases_mol_sum %>%
-  select(-vivas) %>%
-  melt(c("school", "intervention")) %>%
-  mutate(variable = factor(variable, levels = c("Air", "Saliva"))) %>%
-  ggplot(aes(x = as.integer(intervention), y = value, color = school, linetype = variable)) +
+  select(-positive_copies_l) %>%
+  melt(c("intervention")) %>%
+  mutate(variable = factor(ifelse(grepl("air", variable), "Air", "Saliva"), levels = c("Air", "Saliva"))) %>%
+  ggplot(aes(x = as.integer(intervention), y = value, linetype = variable)) +
   geom_point() +
   geom_line() +
   scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
-  scale_y_continuous(limits = c(0, 3)) +
-  scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
-  labs(y = "Positive samples per week", title = "a") +
+  scale_y_continuous(limits = c(0, 15), expand = c(0,0)) +
+  #scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
+  labs(y = "Proportion of ositive samples per week (%)", title = "a") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank())
 
 mol_samples_pl
 
 mol_copies_pl <- cases_mol_sum %>%
-  select(-Air, -Saliva) %>%
-  ggplot(aes(x = as.integer(intervention), y = vivas, color = school)) +
+  ggplot(aes(x = as.integer(intervention), y = positive_copies_l)) +
   geom_point() +
   geom_line() +
   scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
-  scale_y_continuous(limits = c(0, 3)) +
+  scale_y_continuous(limits = c(0, 1.5), expand = c(0,0)) +
   scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
-  labs(y = "Copies/l per week", title = "b") +
+  labs(y = "Viral concentration (copies/l per week)", title = "b") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank(), legend.position = "none", 
         plot.margin = unit(c(5.5, 15, 5.5, 5.5), units = "pt"))
@@ -437,5 +461,5 @@ mol_copies_pl
 descriptives_mol_pl <- arrangeGrob(mol_samples_pl, mol_copies_pl, widths = c(9, 7),  nrow = 1)
 ggsave(plot = descriptives_mol_pl, 
        filename = "../results/molecular-descriptives.pdf", 
-       width = 16 / cm(1), height = 6 / cm(1))
+       width = 16 / cm(1), height = 7 / cm(1))
 ```

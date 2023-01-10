@@ -194,7 +194,7 @@ r_pl <- adjustments %>%
   ggplot(aes(x = date, y = median_R_mean)) +
   geom_line(color = "navyblue") +
   scale_x_continuous(expand = expansion(mult = c(0.01,0.01))) +
-  scale_y_continuous(expand = expansion(mult = c(0.01,0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01,0.01)), limits = c(0, NA)) +
   labs(y = expression(R[t]), x = "Day") +
   theme_classic() +
   theme(axis.title.x = element_text(size = 10), axis.text = element_blank(),
@@ -218,16 +218,43 @@ stud_in_class_pl
 ggsave(file = "../results/adjustments-students-in-class.png", width = 5 / cm(1), h = 3.25 / cm(1))
 
 
-cases_pl <- adjustments %>%
-  filter(school_class == school_class[1]) %>%
+transmission <- read.csv("../data-clean/r-estimates.csv") %>%
+  mutate(date = as.Date(date)) %>%
+  filter(between(date, as.Date("2021-01-24"), as.Date("2021-03-26")))
+
+cases_pl <- transmission %>%
+  ggplot(aes(x = date, y = cases_mean7d)) +
+  geom_line(color = "navyblue") +
+  scale_x_date(expand = c(0,0), breaks = seq(as.Date("2021-01-24"), as.Date("2021-03-26"), by = "1 week"), date_labels = "%b %d") +
+  scale_y_continuous(limits = c(0, 60), breaks = seq(0, 60, 10)) +
+  labs(y = "New cases of COVID-19") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10), axis.text.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_line(linewidth = 1))
+
+cases_pl
+
+rt_pl <- transmission %>%
   ggplot(aes(x = date, y = median_R_mean)) +
   geom_line(color = "navyblue") +
-  scale_x_continuous(expand = expansion(mult = c(0.01,0.01))) +
-  scale_y_continuous(expand = expansion(mult = c(0.01,0.01))) +
-  labs(y = expression(R[t]), x = "Day") +
-  theme_classic() +
-  theme(axis.title.x = element_text(size = 10), axis.text = element_blank(),
-        axis.ticks = element_blank(), axis.title.y = element_text(size = 10))
+  geom_hline(aes(yintercept = 1.), linetype = "dashed") +
+  scale_x_date(expand = c(0,0), breaks = seq(as.Date("2021-01-24"), as.Date("2021-03-26"), by = "1 week"), date_labels = "%b %d") +
+  scale_y_continuous(limits = c(0, 1.2), breaks = seq(0,1.2, .2)) +
+  labs(y = "Reproduction number") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank(), axis.text = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_line(linewidth = 1))
+
+rt_pl
+
+trans_pl <- arrangeGrob(cases_pl, rt_pl, ncol = 1, heights = c(4.25, 4.75))
+ggsave(trans_pl, file = "../results/study-design-transmission.pdf", width = 14 / cm(1), height = 9 / cm(1))
 ```
 
 

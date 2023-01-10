@@ -15,6 +15,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(tidybayes)
 library(LaplacesDemon)
+library(psych)
+library(rstanarm)
 
 source("../utils/plotting.R")
 source("../utils/tex.R")
@@ -29,7 +31,7 @@ study_classes_names <- c("S1 (A)", "S1  (B)", "S2")
 names(study_classes_names) <- study_classes
 
 # environmental data
-palas <- read_csv("../data-clean/left-palas-redcap.csv") %>%
+palas <- read_csv("../data-clean/palas.csv") %>%
   mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
          intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner")))
 
@@ -208,10 +210,10 @@ infectious_sub_pl
 Use the number of students in the class from this study
 
 ```{r}
-ncontacts <- palas %>%
+ncontacts <- redcap_full %>%
   group_by(school, class, date, intervention) %>%
   slice(1) %>%
-  mutate(n = n_room) %>% # actually -1, but we count one teacher per class as well
+  mutate(n = (n_class - n_absent) + 1) %>% # +1 teacher
   ungroup() %>%
   select(school, class, date, intervention, n)
 ```
@@ -228,17 +230,16 @@ ncontacts_pl <- ncontacts %>%
   theme(legend.position = "right", axis.title.x = element_blank(), legend.title = element_blank())
 
 ncontacts_pl
-
-comb_input_pl <- arrangeGrob(rebAirFrac_pl, infectious_sub_pl, ncontacts_pl, widths = c(4.1, 4.7, 7.2), ncol = 3)
-ggsave(plot = comb_input_pl, filename = "../results/supp-transrisk-input.pdf", width = 16 / cm(1), height = 5 / cm(1))
 ```
 
 ### Infectious quanta (q)
 
 Infectious quanta from Buonanno 2020
 * https://www.sciencedirect.com/science/article/pii/S0160412020320675?via%3Dihub
-* Table 2 - Light activity, speaking (log10 ERq)
-* Mean 6.98 x 10e-1; St.dev: 7.20 x 10e-1 quanta/hour
+* Table 2:
+* - Light activity, speaking (log10 ERq): Mean 6.98 x 10e-1; St.dev: 7.20 x 10e-1 quanta/hour
+* - Breathing: 4.29 x 10e-1
+* - Singing: 1.50 x 10e0
 
 ```{r}
 m_q = 6.98
@@ -257,72 +258,93 @@ inf_quanta_pl <- data.frame(x = seq(0, 25, .1)) %>%
   theme_bw2()
 
 inf_quanta_pl
-
-inf_pl <- arrangeGrob(inf_prob_pl, inf_quanta_pl, widths = c(8, 8), nrow = 1)
-ggsave(plot = inf_pl, filename = "../results/supp-infectiousness.pdf", width = 16 / cm(1), height = 6 / cm(1))
 ```
 
 ```{r}
 rq <- function(q) qlnorm(q, logm_q, logs_q)
-quantas <- c(rq(0.025), 6.98, rq(.975))
+quantas <- c(4.29, 6.98, 15.00)
+quanta_names <- paste0(c("Breathing (", "Speaking (", "Singing ("), round_k(quantas, 2), " quanta/h)")
 ```
 
 ### Exposure time (t)
 
-Estimate transmission risk for 20 to 40 hours per week in school.
+Estimate transmission risk for 8 hours school day.
 
 ```{r}
-durations = seq(20, 40, 5)
+exposure_t <- 6
 ```
 
 
-## Estimation
-
-### Transmission risk (P)
+## Modeling Risk
 
 ```{r}
-transRisk <- rebAirFrac %>%
-  left_join(ncontacts) %>%
-  left_join(infectious_sub) %>%
-  dplyr::filter(!is.na(I)) %>%
-  group_by(intervention) %>%
-  summarize(across(c(f, I, n), mean)) %>%
-  ungroup() %>%
-  mutate(t = list(t = durations)) %>%
-  mutate(q = list(q = quantas)) %>%
-  unnest("t") %>%
-  unnest("q") %>%
-  mutate(P = (1 - exp(-f * I * q * t / n))) 
-```
+# rebreathed air fraction
+f_mean <- mean(rebAirFrac$f)
+message(sprintf("Average rebreathed air fraction: %f percent", round(100 * f_mean, 1)))
 
-```{r}
-transRisk_sum <- transRisk %>%
-  mutate(q = paste0("Infectious quanta: ", round_k(q, 1), "p/h"),
-         q = factor(q, levels = paste0("Infectious quanta: ", round_k(quantas, 1), "p/h")))
+# share of infectious people
+In <- left_join(ncontacts, infectious_sub) %>%
+  mutate(In = I / n) 
+In_mean <- mean(In$In, na.rm = T)
+message(sprintf("Average share of infectious people: %f percent", round(100 * In_mean, 1)))
 
-transRisk_sum %>%
-  filter(t == 30, q == "Infectious quanta: 7.0p/h") %>%
-  mutate(P = round(P * 100))
+# infectious quanta 
+q_red <- data.frame(
+  estimate = c("mean", "lower", "upper"),
+  masks = c(0.81, 0.66, 0.90),
+  aircleaner = c(0.50, 0.13, 0.73)
+)
 
-transRisk_sum %>%
-  filter(t == 30, q == "Infectious quanta: 25.8p/h") %>%
-  mutate(P = round(P * 100))
+# taken together
+transRisk <- data.frame(f = f_mean,
+                         In = In_mean,
+                         t = exposure_t,
+                         activity = quanta_names,
+                         standard = quantas) %>%
+  crossing(q_red) %>%
+  mutate(masks = (1-masks) * standard,
+         aircleaner = (1-aircleaner) * standard,
+         standard = standard) %>%
+  melt(c("f", "In", "t", "estimate", "activity")) %>%
+  rename(intervention = variable,
+         q = value) %>%
+  mutate(intervention = ifelse(grepl("masks", intervention), "Mask mandate", 
+                               ifelse(grepl("aircleaner", intervention), "Air cleaner", "No intervention")),
+         P = 100 * (1 - exp(- f * In * t * q))) %>%
+  select(activity, estimate, intervention, P) %>%
+  dcast(intervention + activity ~ estimate) %>%
+  mutate(activity = factor(activity, levels = quanta_names),
+         intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner")))
 
-transRisk_pl <- transRisk_sum %>%
-  ggplot(aes(x = t, y = P, color = intervention)) +
-  geom_line() +
-  geom_point() +
-  facet_wrap(~ q) +
-  scale_color_manual(values = intervention_col) +
-  scale_y_continuous(limits = c(0, NA), expand = expansion(add = c(0, .01)), labels = function(x) x * 100) + 
-  facet_wrap(~ q) +
-  labs(color = "Intervention", y = "Average SARS-CoV-2 risk (%)", x = "Hours of exposure") +
+# Plot
+transRisk_pl <- ggplot(mapping = aes(x = intervention)) +
+  facet_wrap(~ activity) +
+  geom_errorbar(data = transRisk %>% filter(intervention != "No intervention"), aes(ymin = lower, ymax = upper, color = intervention),
+                size = 1, width = .1) +
+  geom_point(data = transRisk %>% filter(intervention != "No intervention"), aes(y = mean, color = intervention),
+             size = 2, fill = "white") +
+  geom_hline(data = transRisk %>% filter(intervention == "No intervention"), aes(yintercept = mean),
+             linetype = "dashed") +
+  geom_text(data = transRisk %>% filter(intervention == "No intervention"), aes(label = "No intervention", y = mean + 2, 1),
+            size = 8 / cm(1)) +
+  scale_color_manual(values = cbPalette[1:2]) +
+  labs(y = "Risk of infection (%)") +
   theme_bw2() +
-  theme(legend.position = "top", panel.spacing = unit(1, "lines"),
-        plot.margin = unit(c(5.5, 7.5, 5.5, 5.5), "points"),
-        legend.title = element_blank())
+  theme(legend.position = "top", legend.title = element_blank(),
+        axis.title.x = element_blank())
 
 transRisk_pl
+save_plot(transRisk_pl, "../results/results-transmission-risk.pdf", w = 16, h = 7)
 
-save_plot(transRisk_pl, pdf_file = "../results/results-transmission-risk.pdf", w = 10, h = 7)
+# Numbers
+transRisk %>%
+  mutate_if(is.numeric, round_k, 0) %>%
+  select(intervention, activity, mean, lower, upper)
+
+transRisk %>%
+  mutate_if(is.numeric, round_k, 0) %>%
+  select(intervention, activity, mean, lower, upper) %>%
+  filter(activity == "Speaking (6.98 quanta/h)") %>%
+  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))) %>%
+  arrange(intervention)
 ```
