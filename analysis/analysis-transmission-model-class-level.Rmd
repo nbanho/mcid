@@ -28,18 +28,13 @@ source("../helper/settings.r")
 ## Data
 
 ```{r}
-col_order <- c("School 1 Intervention (A)", "School 1 Intervention (B)", "School 1 Control", 
-               "School 2 Intervention", "School 2 Control")
+col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
 names(col_order) <- 1:5
 J <- length(col_order)
 
-df <- read.csv("../data-clean/redcap-cases.csv") %>%
-  mutate(class = recode(class, !!! classes_names),
-         school_class = paste(school, class))
+df <- read.csv("../data-clean/redcap-cases.csv") 
 
-full_df <- readRDS("../data-clean/redcap-full-range.rds") %>%
-  mutate(class = recode(class, !!! classes_names),
-         school_class = paste(school, class))
+full_df <- readRDS("../data-clean/redcap-full-range.rds") 
 ```
 
 ```{r}
@@ -425,11 +420,11 @@ est_results <- meta_dat %>%
   unnest() %>%
   select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) %>%
   group_by(variable) %>%
-  summarize_all(median) %>%
+  summarize_all(mean) %>%
   ungroup() 
 
 est_results %>% 
-  filter(variable == c("theta_M", "theta_A")) %>%
+  filter(variable %in% c("theta_M", "theta_A")) %>%
   select(-ess_bulk,-rhat) %>%
   mutate_if(is.double, exp)
   
@@ -440,19 +435,19 @@ variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "omega", "mu_p_in", "sigma_p_
               "theta_M", "tau", paste0("theta_l[",1:J,"]"),"theta_A",
               "gamma[1]", "gamma[2]")
 variable_name <- c("$\\phi$", 
-                   "$\\alpha_{\\textrm{School 1 Intervention (A)}}$", 
-                   "$\\alpha_{\\textrm{School 1 Intervention (B)}}$",
-                   "$\\alpha_{\\textrm{School 1 Control}}$", 
-                   "$\\alpha_{\\textrm{School 2 Intervention}}$", 
-                   "$\\alpha_{\\textrm{School 2 Control}}$",
+                   "$\\alpha_{\\textrm{School 1 (A)}}$", 
+                   "$\\alpha_{\\textrm{School 1 (B)}}$",
+                   "$\\alpha_{\\textrm{School 1 (C)}}$", 
+                   "$\\alpha_{\\textrm{School 2 (D)}}$", 
+                   "$\\alpha_{\\textrm{School 2 (E)}}$",
                    "$\\omega$",
                    "$\\mu^{p_{IN}}$", "$\\sigma^{p_{IN}}$", 
                    "$\\theta^M$", "$\\tau$",
-                   "$\\theta^M_{\\textrm{School 1 Intervention (A)}}$", 
-                   "$\\theta^M_{\\textrm{School 1 Intervention (B)}}$",
-                   "$\\theta^M_{\\textrm{School 1 Control}}$", 
-                   "$\\theta^M_{\\textrm{School 2 Intervention}}$", 
-                   "$\\theta^M_{\\textrm{School 2 Control}}$",
+                   "$\\theta^M_{\\textrm{School 1 (A)}}$", 
+                   "$\\theta^M_{\\textrm{School 1 (B)}}$",
+                   "$\\theta^M_{\\textrm{School 1 (C)}}$", 
+                   "$\\theta^M_{\\textrm{School 2 (D)}}$", 
+                   "$\\theta^M_{\\textrm{School 2 (E)}}$",
                    "$\\theta^A$", "$\\gamma^{\\textrm{Absences}}$", 
                    "$\\gamma^{\\textrm{Community} R_t}$")
 names(variable_name) <- variable
@@ -488,7 +483,7 @@ new_inc <- meta_dat %>%
 new_inc_mean <- new_inc %>%
   filter(.width == .95) %>%
   group_by(school_class, day) %>%
-  summarize(across(c(value, .lower, .upper), median)) %>%
+  summarize(across(c(value, .lower, .upper), mean)) %>%
   ungroup()
 
 est_I_pl <- ggplot(new_inc_mean, aes(x = day)) +
@@ -521,7 +516,7 @@ cum_inc <- meta_dat %>%
 cum_inc_mean <- cum_inc %>%
   filter(.width == .95) %>%
   group_by(school_class, day, variable) %>%
-  summarize(across(c(value, .lower, .upper), median)) %>%
+  summarize(across(c(value, .lower, .upper), mean)) %>%
   ungroup()
 
 cum_inc_pl <- ggplot(mapping = aes(x = day)) +
@@ -554,7 +549,7 @@ new_inc_obs <- meta_dat %>%
   unnest() %>%
   select(school_class, day, new_cases) %>%
   group_by(school_class, day) %>% 
-  median_qi(.width = .95) %>%
+  mean_qi(.width = .95) %>%
   ungroup() %>%
   mutate(variable = "Estimates from probabilistic simulation") %>%
   rename(value = new_cases) %>%
@@ -568,7 +563,7 @@ coverage_df <- meta_dat %>%
   filter(variable == "Estimated cases") %>%
   filter(.width == .95) %>%
   group_by(school_class, day) %>%
-  summarize(across(c(value, .lower, .upper), median)) %>%
+  summarize(across(c(value, .lower, .upper), mean)) %>%
   ungroup() %>%
   #filter(day >= 1) %>%
   mutate(variable = "Estimates from transmission model") %>%
@@ -615,9 +610,9 @@ avoided_df_sum <- avoided_df %>%
   mean_qi(.width = c(0.5, 0.8, 0.95)) %>%
   ungroup() %>%
   group_by(variable, .width) %>%
-  summarise(value = median(value),
-            .lower = median(.lower),
-            .upper = median(.upper)) %>%
+  summarise(value = mean(value),
+            .lower = mean(.lower),
+            .upper = mean(.upper)) %>%
   ungroup() 
 
 av_inf_tot_pl <- avoided_df_sum %>%
@@ -630,7 +625,7 @@ av_inf_tot_pl <- avoided_df_sum %>%
   scale_fill_brewer() +
   scale_y_continuous(expand = c(0,0)) +
   scale_x_continuous(breaks = seq(-10, 20, 5)) +
-  labs(x = "Estimated number of avoided infections", fill = "CrI", title = "c") +
+  labs(x = "Estimated number of avoided infections", fill = "CrI", title = "b") +
   theme_bw2() +
   theme(axis.title.y = element_blank(), legend.position = "right", 
         axis.text.y = element_blank(), axis.ticks.y = element_blank(),

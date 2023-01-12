@@ -41,7 +41,7 @@ df <- read_csv("../data-clean/palas.csv") %>%
 df_daily <- df %>%
   group_by(school, date, week, weekday, intervention) %>%
   summarize(aer = harmonic.mean(aer), 
-            across(c(n, co2ppm, rh, tc, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ mean(.x, na.rm = T))) %>%
+            across(c(n, co2ppm, rav, rh, tc, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ mean(.x, na.rm = T))) %>%
   ungroup() %>%
   group_by(school) %>%
   arrange(date) %>%
@@ -62,15 +62,45 @@ names(vars_labels_no_units) <- vars
 ## Descriptives
 
 ```{r}
+# co2 overall
 df_daily %>%
   summarize(paste(round(mean(co2ppm)), round(sd(co2ppm)), sep = " +/- "))
 
+# co2 by daytime
+co2_hourly <- df %>%
+  mutate(time_h = hour(time)) %>%
+  group_by(school, time_h) %>%
+  summarize(mean = mean(co2ppm),
+            lower = quantile(co2ppm, 0.25),
+            upper = quantile(co2ppm, 0.75),
+            n_data = n()) %>%
+  ungroup() 
+
+co2_hourly %>%
+  ggplot(aes(x = time_h, y = n_data, fill = school)) +
+  geom_bar(stat = "identity", position = position_dodge())
+
+co2_hourly %>%
+  filter(n_data >= 100) %>%
+  ggplot(aes(x = time_h, group = school, color = school)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position = position_dodge2(width = .2)) +
+  geom_point(aes(y = mean), position = position_dodge2(width = .2)) +
+  geom_line(aes(y = mean)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(7, 16, 1)) +
+  labs(x = "Daytime (h)", y = "CO2 (Mean and IQR)") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+# co2 and particle concentrations between study conditions
 df_daily %>%
   group_by(intervention) %>%
   summarise(across(c(co2ppm, cn1cm), ~ paste(round(mean(.x)), round(sd(.x)), sep = " +/- ")),
             across(c(pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ paste(round(mean(.x), 1), round(sd(.x), 1), sep = " +/- ")))
 
-boxplots <- df %>%
+
+# boxplots
+boxplots <- df_daily %>%
   select(school, intervention, co2ppm, rh, tc, aer, rav, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm) %>%
   melt(c("school", "intervention")) %>%
   ggplot(aes(color = intervention, y = value, x = school)) +
@@ -103,15 +133,31 @@ boxplots_main
 save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 5)
 ```
 
+## Check ventilation duration
+
+```{r}
+vent_dur <- readRDS("../data-clean/ventilation-duration.rds") %>%
+  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner")))
+
+seed0 <- 12345
+vm <- stan_glm(prop_vent ~ intervention + weekday, data = vent_dur, seed = seed0)
+summary(vm)
+
+bayesplot::mcmc_intervals(vm) +
+  geom_vline(aes(xintercept = 0))
+
+as.data.frame(vm) %>%
+  select(`interventionMask mandate`, `interventionAir cleaner`) %>%
+  set_names(c("Mask mandate", "Air cleaner")) %>%
+  gather() %>%
+  group_by(key) %>%
+  mean_qi() %>%
+  ungroup() %>%
+  mutate(across(c(value, .lower, .upper), round, 2))
+```
+
 ## Linear models
 
-<!-- ```{r} -->
-<!-- df_within <- df_daily %>% -->
-<!--   group_by(school, weekday) %>% -->
-<!--   mutate(across(c(n, aer, cn1cm, pm1mugm, pm25mugm, pm4mugm, pm10mugm), ~ (.x - mean(.x)) / sd(.x))) %>% -->
-<!--   ungroup() %>%  -->
-<!--   mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))) -->
-<!-- ``` -->
 
 ```{r}
 # log data

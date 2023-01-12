@@ -26,10 +26,6 @@ source("../helper/settings.r")
 ## Data
 
 ```{r}
-study_classes <- c("Study (A)", "Study (B)", "Study")
-study_classes_names <- c("S1 (A)", "S1  (B)", "S2")
-names(study_classes_names) <- study_classes
-
 # environmental data
 palas <- read_csv("../data-clean/palas.csv") %>%
   mutate(weekday = factor(weekday, levels = paste0(c("Mon", "Tues", "Wednes", "Thurs", "Fri"), "day")),
@@ -43,7 +39,7 @@ redcap_sim <- meta_dat <- data.frame(folders = list.files("../fitted-models/mult
   mutate(sample_file = sapply(folders, list.files, pattern = "sample.rds", full.names = T)) %>%
   mutate(observed_data = lapply(sample_file, readRDS)) %>%
   unnest() %>%
-  filter(grepl("Study", class)) 
+  filter(school_class %in% c("School 1 (A)", "School 1 (B)", "School 2 (D)")) 
 ```
 
 ## Input
@@ -54,16 +50,14 @@ Use median rebreathed air fraction from this study
 
 ```{r}
 rebAirFrac <- palas %>%
-  group_by(school, class, date, intervention) %>%
+  group_by(school, date, intervention) %>%
   summarize(f = mean(f, na.rm = T)) %>% 
   ungroup() 
 ```
 
 ```{r}
 rebAirFrac_pl <- rebAirFrac %>%
-  mutate(class = recode(class, !!! study_classes_names),
-         class = factor(class, levels = study_classes_names)) %>%
-  ggplot(aes(x = class, color = intervention, y = f)) +
+  ggplot(aes(x = school, color = intervention, y = f)) +
   geom_boxplot() +
   scale_color_manual(values = intervention_col) +
   labs(y = "Average rebreathed air fraction", title = "a") +
@@ -133,10 +127,10 @@ study_period <- seq(min(redcap_full$date), max(redcap_full$date), by = "1 day")
 
 infectious <- data.frame()
 
-for (sc in study_classes) {
+for (sc in c("School 1 (A)", "School 1 (B)", "School 2 (D)")) {
   
   redcap_sim_sc <- redcap_sim %>% 
-    filter(class == sc) 
+    filter(school_class == sc) 
     
     message(sprintf("Class: %s", sc))
   
@@ -155,7 +149,8 @@ for (sc in study_classes) {
       
       new_entry <- data.frame(
         school = redcap_sim_sc$school[1], 
-        class = sc,
+        class = redcap_sim_sc$class[1],
+        school_class = sc,
         dataset = ds,
         date = study_period[t],
         I = sum(redcap_sim_sc_ds$prob_infectious))
@@ -168,10 +163,9 @@ for (sc in study_classes) {
 
 ```{r}
 infectious %>%
-  group_by(school, class, date) %>%
+  group_by(school_class, date) %>%
   summarise(I = mean(I)) %>%
   ungroup() %>%
-  mutate(school_class = paste(school, class)) %>%
   ggplot(aes(x = date, y =  I)) +
   geom_step() +
   facet_wrap(~ school_class)
@@ -193,8 +187,6 @@ infectious_sub <- infectious %>%
 
 ```{r}
 infectious_sub_pl <- infectious_sub %>%
-  mutate(class = recode(class, !!! study_classes_names),
-         class = factor(class, levels = study_classes_names)) %>%
   ggplot(aes(x = class, color = intervention, y = I)) +
   geom_boxplot() +
   scale_color_manual(values = intervention_col) +
@@ -211,6 +203,7 @@ Use the number of students in the class from this study
 
 ```{r}
 ncontacts <- redcap_full %>%
+  filter(class %in% c("A", "B", "D")) %>%
   group_by(school, class, date, intervention) %>%
   slice(1) %>%
   mutate(n = (n_class - n_absent) + 1) %>% # +1 teacher
@@ -220,8 +213,6 @@ ncontacts <- redcap_full %>%
 
 ```{r}
 ncontacts_pl <- ncontacts %>%
-  mutate(class = recode(class, !!! study_classes_names),
-         class = factor(class, levels = study_classes_names)) %>%
   ggplot(aes(x = class, color = intervention, y = n)) +
   geom_boxplot() +
   scale_color_manual(values = intervention_col) +
@@ -252,7 +243,7 @@ inf_quanta_pl <- data.frame(x = seq(0, 25, .1)) %>%
   ggplot(aes(x = x, y = y)) +
   geom_line() +
   geom_vline(aes(xintercept = 0), linetype = "dotted", alpha = .5) +
-  labs(x = "Infectious quanta (p/h)", y = "Density", title = "b") +
+  labs(x = "Infectious quanta (p/h)", y = "Density") +
   scale_x_continuous(expand = c(0,0), breaks = seq(0, 25, 5)) +
   scale_y_continuous(expand = c(0,0)) +
   theme_bw2()
@@ -268,7 +259,7 @@ quanta_names <- paste0(c("Breathing (", "Speaking (", "Singing ("), round_k(quan
 
 ### Exposure time (t)
 
-Estimate transmission risk for 8 hours school day.
+Estimate transmission risk for 6 hours school day.
 
 ```{r}
 exposure_t <- 6
@@ -291,8 +282,8 @@ message(sprintf("Average share of infectious people: %f percent", round(100 * In
 # infectious quanta 
 q_red <- data.frame(
   estimate = c("mean", "lower", "upper"),
-  masks = c(0.81, 0.66, 0.90),
-  aircleaner = c(0.50, 0.13, 0.73)
+  masks = c(0.69, 0.41, 0.86),
+  aircleaner = c(0.39, 0.04, 0.68)
 )
 
 # taken together
@@ -325,7 +316,7 @@ transRisk_pl <- ggplot(mapping = aes(x = intervention)) +
              size = 2, fill = "white") +
   geom_hline(data = transRisk %>% filter(intervention == "No intervention"), aes(yintercept = mean),
              linetype = "dashed") +
-  geom_text(data = transRisk %>% filter(intervention == "No intervention"), aes(label = "No intervention", y = mean + 2, 1),
+  geom_text(data = transRisk %>% filter(intervention == "No intervention"), aes(label = "No intervention", y = mean + .5, 1),
             size = 8 / cm(1)) +
   scale_color_manual(values = cbPalette[1:2]) +
   labs(y = "Risk of infection (%)") +
@@ -338,13 +329,9 @@ save_plot(transRisk_pl, "../results/results-transmission-risk.pdf", w = 16, h = 
 
 # Numbers
 transRisk %>%
-  mutate_if(is.numeric, round_k, 0) %>%
-  select(intervention, activity, mean, lower, upper)
-
-transRisk %>%
-  mutate_if(is.numeric, round_k, 0) %>%
-  select(intervention, activity, mean, lower, upper) %>%
+  mutate_if(is.numeric, round_k, 1) %>%
+  select(intervention, activity, mean, upper, lower) %>%
   filter(activity == "Speaking (6.98 quanta/h)") %>%
-  mutate(intervention = factor(intervention, levels = c("No intervention", "Mask mandate", "Air cleaner"))) %>%
+  mutate(intervention = factor(intervention, levels = c("Mask mandate", "Air cleaner", "No intervention"))) %>%
   arrange(intervention)
 ```

@@ -16,7 +16,7 @@ if(!dir.exists('fitted-models/multiverse')) {
 #### Data #### 
 
 # order of school classes
-col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", "School 2 Study", "School 2 Control")
+col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
 names(col_order) <- 1:5
 J <- length(col_order)
 
@@ -51,7 +51,7 @@ full_df <- data.frame(school_class = rep(col_order, each = length(dates)),
                               ifelse(school == "School 2" & week < 9, 1, 0)),
          airfilter = ifelse(school == "School 1" & week >= 11, 1,
                             ifelse(school == "School 2" & week >= 10 & week < 12, 1, 0)),
-         airfilter = ifelse(class == "Control", 0, airfilter),
+         airfilter = ifelse(class %in% c("C", "E"), 0, airfilter),
          weekend = ifelse(weekday %in% c("Saturday", "Sunday"), 1, 0),
          no_school = ifelse(school == "School 1" & week %in% c(6,7), T,
                             ifelse(school == "School 2" & week %in% c(6,12), T, F)),
@@ -219,7 +219,7 @@ logit(mean_daily_share)
 daily_share_pl <- share_of_susecptibles %>%
   ggplot(aes(x = daily_share)) +
   geom_density() +
-  geom_vline(aes(xintercept = median(share_of_susecptibles$daily_share)), linetype = "dotted", color = "blue") + 
+  geom_vline(aes(xintercept = mean(share_of_susecptibles$daily_share)), linetype = "dotted", color = "blue") + 
   scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
   scale_x_continuous(limits = c(0, .1), labels = function(x) x * 100, expand = c(0,0)) +
   labs(x = "Daily prop. of susceptibles\ngetting infected in school", y = "Density", title = "a") +
@@ -237,7 +237,7 @@ logit_daily_share_pl <- share_of_susecptibles %>%
   annotate("text", x = -2.5, y = 0.4, label = "Data", color = "black", size = 8 / cm(1)) +
   geom_line(data = prior_logit_share, mapping = aes(x = x, y = y), color = "red") +
   annotate("text", x = -1.5, y = 0.15, label = "Prior", color = "red", size = 8 / cm(1)) +
-  geom_vline(aes(xintercept = median(share_of_susecptibles$logit_daily_share)), linetype = "dotted", color = "blue") + 
+  geom_vline(aes(xintercept = mean(share_of_susecptibles$logit_daily_share)), linetype = "dotted", color = "blue") + 
   scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
   scale_x_continuous(expand = c(0,0)) +
   labs(x = "Logit of daily prop. of susceptibles\ngetting infected in school", y = "Density", title = "b") +

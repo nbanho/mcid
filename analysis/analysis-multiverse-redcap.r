@@ -11,7 +11,7 @@ source("utils/bayes.R")
 tm <- cmdstan_model("models/tm_class.stan", cpp_options = list(stan_threads = T))
 
 # Data 
-col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", "School 2 Study", "School 2 Control")
+col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
 names(col_order) <- 1:5
 
 # Number of runs

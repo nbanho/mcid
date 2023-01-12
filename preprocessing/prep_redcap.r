@@ -17,9 +17,9 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ",") %>%
   mutate(school = ifelse(grepl("Olten", school), "School 1", "School 2"),
          is_study_class = ifelse(grepl("Studienklasse", `Record.ID`), T, F),
          classlabel = stringi::stri_extract(`Record.ID`, regex = "\\w\\d\\w"),
-         classlabel = ifelse(!is_study_class, classlabel, ifelse(classlabel == "B3d", "B", "A")),
-         class = ifelse(school == "School 1", ifelse(is_study_class, paste0("Study (", classlabel, ")"), "Control"), 
-                        ifelse(is_study_class, "Study", "Control")),
+         class = ifelse(school == "School 1", ifelse(is_study_class, ifelse(classlabel == "E3f", "A", "B"), "C"),
+                             ifelse(is_study_class, "D", "E")),
+         class = factor(class, levels = LETTERS[1:5]),
          is_teacher = ifelse(`Bitte.geben.Sie.das.Geburtsjahr.des.Schülers...der.Schülerin.an` <= 2000, T, F),
          date_start = as.Date(date_start, format = "%d.%m.%y"),
          date_end = as.Date(date_end, format = "%d.%m.%y"),
@@ -28,10 +28,10 @@ df <- read.delim("data-raw/redcap/suspected-cases.csv", sep = ",") %>%
          # special case: teachers --> set date_start = date_end
          date_end = ifelse(is.na(date_end), as.character(date_start + days(1)), as.character(date_end)),
          date_end = as.Date(date_end),
-         n_class = ifelse(class == "Study (B)", 14,
-                          ifelse(class == "Study (A)", 24,
-                                 ifelse(school == "School 1", 14, 
-                                        ifelse(school == "School 2" & class == "Study", 20, 18))))) %>%
+         n_class = ifelse(class == "A", 24,
+                          ifelse(class == "B", 14,
+                                 ifelse(class == "C", 14, 
+                                        ifelse(class == "D", 20, 18))))) %>%
   filter(`Anzahl.Tage` != 0) %>%
   group_by(school, class) %>%
   arrange(date_start) %>%
@@ -57,8 +57,7 @@ df %>%
   summarize(n = sum(missing[value])) %>%
   ungroup() %>%
   dcast(school + class ~ variable) %>%
-  mutate(Total = `Quarantäne` + Isolation + Krankheit + Anderes,
-         class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control"))) %>%
+  mutate(Total = `Quarantäne` + Isolation + Krankheit + Anderes) %>%
   select(school, class, Total, `Quarantäne`, Isolation, Krankheit, Anderes) %>%
   arrange(school, class) %>%
   bind_rows(data.frame(school = "Total", 
@@ -89,7 +88,7 @@ df_absent <- df  %>%
   mutate(date = map2(as.character(date_start), as.character(date_end), 
                      function(x,y) seq(as.Date(x), to = as.Date(y) - days(1), by = "1 day"))) %>%
   select(school, is_study_class, class, date) %>%
-  unnest() %>%
+  unnest(cols = date) %>%
   group_by(school, class, date) %>%
   summarize(n_absent = n()) %>%
   ungroup() %>%
@@ -110,7 +109,7 @@ df_confirmed_teacher[2,"date_start"] <- df_confirmed_teacher[1,"date_start"]
 df_confirmed_teacher <- df_confirmed_teacher[-1, ] 
 # teacher in both control and study classes
 df_confirmed_teacher <- df_confirmed_teacher[-3, ] 
-df_confirmed_teacher[2,"class"] <- "Study|Control"
+# df_confirmed_teacher[2,"class"] <- "D|E" # i.e. the teacher actually teaches both classes
 
 df_confirmed <- df_confirmed %>%
   filter(!is_teacher) %>%
@@ -165,15 +164,15 @@ df_suspected$date_start[idx_err] <- df_suspected$date_symptoms[idx_err]
 
 #### Combine data ####
 
-col_order <- c("School 1 Study (A)", "School 1 Study (B)", "School 1 Control", "School 2 Study", "School 2 Control")
+col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
 names(col_order) <- 1:5
 
 df_cases <- rbind(df_confirmed, df_isolated, df_suspected) %>%
-  mutate(school_class = factor(paste(school, class), levels = col_order))
+  mutate(school_class = factor(paste0(school, " (", class, ")"), levels = col_order))
 
 write.csv(df_cases, "data-clean/redcap-cases.csv", row.names = F)
 
 df_absences <- df_absent %>% left_join(df_tot) %>%
-  mutate(school_class = factor(paste(school, class), levels = col_order))
+  mutate(school_class = factor(paste0(school, " (", class, ")"), levels = col_order))
 
 write.csv(df_absences, "data-clean/redcap-absences.csv", row.names = F)

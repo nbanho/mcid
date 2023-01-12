@@ -30,8 +30,7 @@ source("../helper/settings.r")
 ```{r}
 df <- read_csv("../data-clean/redcap-cases.csv") %>%
   filter(!is_teacher) %>% # ignore cases from teachers 
-  select(-is_teacher) %>%
-  mutate(class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control")))
+  select(-is_teacher) 
 
 full_df <- readRDS("../data-clean/redcap-full-range.rds")
 
@@ -63,20 +62,23 @@ sim_modeling_df <- data.frame(folders = list.files("../fitted-models/multiverse"
 total_freq <- sim_df  %>%
   left_join(full_df %>% 
               rename(date_start = date) %>%
-              select(school, class, date_start, intervention)) %>%
+              select(school, class, date_start, intervention)) 
+
+total_freq %>%
+  group_by(dataset) %>%
+  summarize(n = n()) %>%
+  ungroup() %>%
+  mean_qi(n)
+  
+  
+total_freq <- total_freq %>%
   group_by(dataset, school, class, intervention) %>%
   summarise(n = n()) %>%
   ungroup() %>%
   select(-dataset) %>%
   group_by(school, class, intervention) %>%
   mean_qi() %>%
-  ungroup() %>%
-  mutate(class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control"))) 
-
-total_freq %>% 
-  group_by(intervention) %>% 
-  summarise(across(c(n, .lower, .upper), function(x) round(sum(x), 0))) %>%
-  ungroup()
+  ungroup() 
 
 total_freq_pl <- total_freq %>%
   mutate(class = recode(class, !!! classes_names)) %>%
@@ -90,39 +92,48 @@ total_freq_pl <- total_freq %>%
   scale_color_manual(values = (intervention_col)) +
   facet_wrap(~ school, scales = "free_x")  +
   scale_y_continuous(expand = expansion(add = c(0.75)), limits = c(0, NA)) +
-  labs(x = "Class", y = "Estimated number of cases", title = "a") +
+  labs(x = "Class", y = "Estimated number of cases") +
   theme_bw2() +
   theme(legend.position = "top", plot.title = element_text(hjust = 0),
         legend.title = element_blank(), axis.title.x = element_blank())
 
 total_freq_pl
+save_plot(total_freq_pl, pdf_file = "../results/redcap-supp-descriptives-total-cases.pdf", w = 14, h = 8)
 ``` 
 
 ### New cases
 
 ```{r}
-col_order <- c("School 1 Intervention (A)", "School 1 Intervention (B)", "School 1 Control", 
-               "School 2 Intervention", "School 2 Control")
+col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
+
+n_class_df <- full_df %>%
+  group_by(school_class) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(school_class, n_class)
 
 cases_time_pl <- sim_modeling_df %>%
   group_by(school_class, school, class, date, intervention, weekend, no_school) %>%
   summarise(new_cases = mean(new_cases)) %>%
   ungroup() %>%
+  group_by(school_class) %>%
+  arrange(date) %>%
+  mutate(cum_cases = cumsum(new_cases)) %>%
+  ungroup() %>%
   mutate(intervention = as.character(intervention), 
          intervention = ifelse(weekend == 1, "Weekend", ifelse(no_school, "Vacation", intervention)),
          intervention = ifelse(school == "School 2" & date >= as.Date("2022-03-19"), "", intervention),
          intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner", 
-                                                        "Vacation", "Weekend", "")),
-         class = recode(class, !!! classes_names),
-         school_class = factor(paste(school, class), col_order)) %>%
-  ggplot(aes(x = date, y = new_cases)) +
-  geom_step() +
+                                                        "Vacation", "Weekend", ""))) %>%
+  ggplot(aes(x = date, y = cum_cases)) +
+  geom_step(size = 1.5 / cm(1)) +
   geom_tile(aes(y = 0, height = Inf, fill = intervention), alpha = .2) +
-  facet_wrap(~ school_class, ncol = 1) +
+  geom_hline(data = n_class_df, mapping = aes(yintercept = n_class), linetype = "dashed", color = "red") +
+  facet_wrap(~ school_class, ncol = 1, strip.position = "left", scales = "free_y") +
   scale_fill_manual(values = c(intervention_col, cbPalette[3:4], "white")) +
   scale_x_date(expand = c(0,0)) +
-  scale_y_continuous(expand = expansion(add = c(0, .1))) +
-  labs(y = "Estimated number of new cases", title = "b") +
+  scale_y_continuous(expand = expansion(mult = c(0, .05)), breaks = seq(0, 25, 5)) +
+  labs(y = "Estimated cumulative number of cases", title = "a") +
   theme_bw2() +
   theme(legend.title = element_blank(), axis.title.x = element_blank(),
         legend.position = "top") +
@@ -130,9 +141,7 @@ cases_time_pl <- sim_modeling_df %>%
   
 
 cases_time_pl
-
-descriptives_pl <- arrangeGrob(total_freq_pl, cases_time_pl, heights = c(6, 10), ncol = 1)
-ggsave(plot = descriptives_pl, filename = "../results/redcap-descriptives.pdf", width = 16 / cm(1), height = 16 / cm(1))
+save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 16)
 ```
 
 ### Comparing sim
@@ -143,8 +152,6 @@ case_lab <- c("Confirmed (positive test result)", "Confirmed (isolation)",
 names(case_lab) <- c("confirmed", "isolated", "symptomatic", "unknown")
 
 new_df <- df %>%
-  mutate(class = recode(class, !!! classes_names),
-         school_class = paste(school, class)) %>%
   rename(date = date_start) %>%
   group_by(school_class, date, suspected) %>%
   summarise(new_cases = n()) %>%
@@ -153,11 +160,9 @@ new_df <- df %>%
          suspected = factor(suspected, levels = rev(case_lab))) 
 
 comp_sim_pl <- sim_modeling_df %>%
-  group_by(school_class, school, class, date) %>%
+  group_by(school_class, date) %>%
   summarise(new_cases = mean(new_cases)) %>%
   ungroup() %>%
-  mutate(class = recode(class, !!! classes_names),
-         school_class = factor(paste(school, class), col_order)) %>%
   ggplot(aes(x = date, y = new_cases)) +
   geom_bar(data = new_df, mapping = aes(fill = suspected), stat = "identity") +
   geom_step(aes(color = "Estimated average number of new cases after probabilistic simulation")) +
@@ -174,7 +179,6 @@ comp_sim_pl <- sim_modeling_df %>%
         legend.box = "vertical") 
 
 comp_sim_pl
-
 save_plot(comp_sim_pl, pdf_file = "../results/redcap-supp-descriptives.pdf", w = 16, h = 12)
 ```
 
@@ -234,7 +238,7 @@ df %>%
   summarize(n = n()) %>%
   ungroup() %>%
   dcast(school + class ~ suspected) %>%
-  mutate(class = factor(class, levels = c("Study (A)", "Study (B)", "Study", "Control")),
+  mutate(class = factor(class, levels = LETTERS[1:5]),
          across(c(confirmed, isolated, symptomatic, unknown), ~ ifelse(.x %>% is.na(), 0, .x)),
          total = confirmed + isolated + symptomatic + unknown)  %>%
   select(school, class, total, confirmed, isolated, symptomatic, unknown) %>%
@@ -438,7 +442,7 @@ mol_samples_pl <- cases_mol_sum %>%
   scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
   scale_y_continuous(limits = c(0, 15), expand = c(0,0)) +
   #scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
-  labs(y = "Proportion of ositive samples per week (%)", title = "a") +
+  labs(y = "Proportion of positive samples per week (%)", title = "a") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank())
 
