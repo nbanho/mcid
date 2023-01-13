@@ -126,11 +126,14 @@ boxplots_main <- df_daily %>%
   scale_color_manual(values = intervention_col) +
   labs(color = "Intervention", title = "a") +
   theme_bw2() +
-  theme(legend.position = "top", axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
-        legend.title = element_blank())
+  theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.title = element_blank(), legend.position = c(.5, 1.31), legend.key.height = unit(.3, "cm"),
+        legend.key.width = unit(.2, "cm"), plot.title.position = "plot",
+        legend.direction = "horizontal",  
+        legend.text = element_text(size = 8))
 
 boxplots_main
-save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 5)
+save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 4.25)
 ```
 
 ## Check ventilation duration
@@ -244,7 +247,7 @@ effects_env_main <- draws_filt %>%
   theme_bw2() +
   theme(axis.title.y = element_blank(), legend.position = "none", 
         axis.ticks.y = element_blank(), axis.text.y = element_blank(),
-        legend.title = element_blank())
+        legend.title = element_blank(), plot.title.position = "plot")
 
 effects_env_main
 save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 3)

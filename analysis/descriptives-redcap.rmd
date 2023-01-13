@@ -101,7 +101,7 @@ total_freq_pl
 save_plot(total_freq_pl, pdf_file = "../results/redcap-supp-descriptives-total-cases.pdf", w = 14, h = 8)
 ``` 
 
-### New cases
+### Cum cases
 
 ```{r}
 col_order <- c("School 1 (A)", "School 1 (B)", "School 1 (C)", "School 2 (D)", "School 2 (E)")
@@ -126,22 +126,25 @@ cases_time_pl <- sim_modeling_df %>%
          intervention = factor(intervention, levels = c("Mask mandate", "No intervention", "Air cleaner", 
                                                         "Vacation", "Weekend", ""))) %>%
   ggplot(aes(x = date, y = cum_cases)) +
-  geom_step(size = 1.5 / cm(1)) +
+  geom_step(size = 1.5 / cm(1), direction = "vh") +
   geom_tile(aes(y = 0, height = Inf, fill = intervention), alpha = .2) +
   geom_hline(data = n_class_df, mapping = aes(yintercept = n_class), linetype = "dashed", color = "red") +
   facet_wrap(~ school_class, ncol = 1, strip.position = "left", scales = "free_y") +
   scale_fill_manual(values = c(intervention_col, cbPalette[3:4], "white")) +
-  scale_x_date(expand = c(0,0)) +
-  scale_y_continuous(expand = expansion(mult = c(0, .05)), breaks = seq(0, 25, 5)) +
+  scale_x_date(expand = expansion(add = c(-.5,-.5)), date_breaks = "1 week", date_labels = "%b %d") +
+  scale_y_continuous(expand = expansion(mult = c(0, .1)), breaks = seq(0, 25, 5)) +
   labs(y = "Estimated cumulative number of cases", title = "a") +
   theme_bw2() +
   theme(legend.title = element_blank(), axis.title.x = element_blank(),
-        legend.position = "top") +
+        legend.position = c(.5, 1.05), legend.key.height = unit(.25, "cm"),
+        legend.key.width = unit(.35, "cm"), plot.title.position = "plot",
+        legend.text = element_text(size = 8),
+        panel.spacing = unit(.66, "lines")) +
   guides(fill = guide_legend(nrow = 1))
   
 
 cases_time_pl
-save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 16)
+save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 10)
 ```
 
 ### Comparing sim
@@ -406,6 +409,8 @@ mol_tbl_2 %>%
     include.rownames = F,
     only.contents = T,
     hline.after = c(1,7,10,17))
+
+cases_mol$`Copies/l (Vivas)` %>% as.numeric %>% mean(na.rm = T) %>% round(1)
 ```
 
 
@@ -444,7 +449,11 @@ mol_samples_pl <- cases_mol_sum %>%
   #scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
   labs(y = "Proportion of positive samples per week (%)", title = "a") +
   theme_bw2() +
-  theme(axis.title.x = element_blank(), legend.title = element_blank())
+  theme(axis.title.x = element_blank(), legend.title = element_blank(),
+        legend.position = c(.5, 1.055), legend.key.height = unit(.25, "cm"),
+        legend.key.width = unit(.35, "cm"), plot.title.position = "plot",
+        legend.direction = "horizontal", plot.margin = unit(c(5.5, 15, 5.5, 12.5), units = "pt"), 
+        legend.text = element_text(size = 8))
 
 mol_samples_pl
 
@@ -458,11 +467,12 @@ mol_copies_pl <- cases_mol_sum %>%
   labs(y = "Viral concentration (copies/l per week)", title = "b") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank(), legend.position = "none", 
-        plot.margin = unit(c(5.5, 15, 5.5, 5.5), units = "pt"))
+        plot.margin = unit(c(5.5, 12.5, 5.5, 15), units = "pt"),
+        plot.title.position = "plot")
 
 mol_copies_pl
 
-descriptives_mol_pl <- arrangeGrob(mol_samples_pl, mol_copies_pl, widths = c(9, 7),  nrow = 1)
+descriptives_mol_pl <- arrangeGrob(mol_samples_pl, mol_copies_pl, widths = c(8, 8),  nrow = 1)
 ggsave(plot = descriptives_mol_pl, 
        filename = "../results/molecular-descriptives.pdf", 
        width = 16 / cm(1), height = 7 / cm(1))

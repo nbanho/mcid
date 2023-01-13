@@ -619,23 +619,27 @@ av_inf_tot_pl <- avoided_df_sum %>%
   arrange(desc(.width)) %>%
   ggplot(aes(xmin = .lower, xmax = .upper, ymin = 0, ymax = 2, fill = factor(.width, levels = rev(c(.5, .8, .95))))) +
   geom_rect() +
-  geom_point(aes(x = value, y = 1), size = 4, fill = "white", shape = 21) +
-  geom_vline(aes(xintercept = 0), linetype = "dotted") +
+  geom_vline(aes(xintercept = 0), linetype = "dotted", size = 2 / cm(1)) +
+  geom_vline(aes(xintercept = value), size = 1.5 / cm(1)) +
+  geom_point(aes(x = value, y = 1), size = 5, fill = "white", shape = 21) +
   facet_wrap(~ variable) +
   scale_fill_brewer() +
   scale_y_continuous(expand = c(0,0)) +
   scale_x_continuous(breaks = seq(-10, 20, 5)) +
   labs(x = "Estimated number of avoided infections", fill = "CrI", title = "b") +
   theme_bw2() +
-  theme(axis.title.y = element_blank(), legend.position = "right", 
+  theme(axis.title.y = element_blank(), legend.direction = "horizontal",
         axis.text.y = element_blank(), axis.ticks.y = element_blank(),
         plot.title = element_text(hjust = 0),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+        panel.grid.minor = element_blank(),
+        legend.position = c(.5, 1.55), legend.key.height = unit(.25, "cm"),
+        legend.key.width = unit(.35, "cm"), plot.title.position = "plot",
+        legend.text = element_text(size = 8))
   
 av_inf_tot_pl
 
-save_plot(av_inf_tot_pl, pdf_file = "../results/redcap-results.pdf", w = 16, h = 3)
+save_plot(av_inf_tot_pl, pdf_file = "../results/redcap-results.pdf", w = 16, h = 3.25)
 ```
 
 ```{r}
