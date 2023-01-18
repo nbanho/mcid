@@ -104,9 +104,9 @@ timediff <- timediff %>%
 # plot
 time_diff_weights_pl <- timediff %>%
   ggplot(aes(x = d)) +
-  geom_line(aes(y = n_fitted), color = "blue") +
-  geom_point(aes(y = n_fitted), color = "blue", shape = 4) +
-  geom_point(aes(y = n)) +
+  geom_line(aes(y = n_fitted), color = "black") +
+  geom_point(aes(y = n_fitted), color = "black") +
+  geom_point(aes(y = n), color = "blue", shape = 4) +
   geom_label(aes(y = n_fitted, label = p_lab), vjust = -.5, hjust = -.1, size = 8 / cm(1)) +
   scale_y_continuous(expand = expansion(add = c(.5, 2.5))) +
   scale_x_continuous(expand = expansion(add = c(0.1, 1)), breaks = seq(0, 4)) + 

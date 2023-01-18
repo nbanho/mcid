@@ -367,7 +367,7 @@ varnames <- c("No. of students", "Confirmed", "\\hphantom{00}Positive test resul
               "Suspected", "\\hphantom{00}Known symptoms", "\\hphantom{00}Unknown symptoms",
               "Saliva samples", "\\hphantom{00}Negative", "\\hphantom{00}Positive", 
               "Air samples", "\\hphantom{00}Coriolis", "\\hphantom{00}Vivas", "\\hphantom{00}Negative", "\\hphantom{00}Positive", 
-              "\\hphantom{0000}Vivas: Copies/l", "\\hphantom{0000}Coriolis: Copies/l",
+              "\\hphantom{0000}Vivas: Copies/L", "\\hphantom{0000}Coriolis: Copies/L",
               "Positive air samples on filter 1", "Positive air samples on filter 2")
 
 mol_tbl_1 <- cases_mol %>%
@@ -447,7 +447,7 @@ mol_samples_pl <- cases_mol_sum %>%
   scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
   scale_y_continuous(limits = c(0, 15), expand = c(0,0)) +
   #scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
-  labs(y = "Proportion of positive samples per week (%)", title = "a") +
+  labs(y = "Positive samples (% of total)", title = "a") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank(),
         legend.position = c(.5, 1.055), legend.key.height = unit(.25, "cm"),
@@ -464,7 +464,7 @@ mol_copies_pl <- cases_mol_sum %>%
   scale_x_continuous(breaks = c(1,2,3), labels = c("Mask mandate", "No intervention", "Air cleaner")) +
   scale_y_continuous(limits = c(0, 1.5), expand = c(0,0)) +
   scale_color_manual(values = RColorBrewer::brewer.pal(3, "Set2")[c(2,3)]) +
-  labs(y = "Viral concentration (copies/l per week)", title = "b") +
+  labs(y = "Viral concentration (copies/L)", title = "b") +
   theme_bw2() +
   theme(axis.title.x = element_blank(), legend.title = element_blank(), legend.position = "none", 
         plot.margin = unit(c(5.5, 12.5, 5.5, 15), units = "pt"),
