@@ -406,10 +406,10 @@ new_N_week %>%
 meta_dat <- data.frame(folders = list.files("../fitted-models/multiverse", full.names = T),
                        dataset = as.numeric(list.files("../fitted-models/multiverse"))) %>%
   arrange(dataset) %>%
-  mutate(avoided_file = sapply(folders, list.files, pattern = "avoided-infections", full.names = T),
+  mutate(avoided_file = sapply(folders, list.files, pattern = "avoided-infections.rds", full.names = T),
          inc_file = sapply(folders, list.files, pattern = "incidence", full.names = T),
          sample_file = sapply(folders, list.files, pattern = "sample-modeling-df.rds", full.names = T),
-         results_file = sapply(folders, list.files, pattern = "estimation_results", full.names = T))
+         results_file = sapply(folders, list.files, pattern = "estimation_results.rds", full.names = T))
 ```
 
 ### Estimation results
@@ -418,17 +418,19 @@ meta_dat <- data.frame(folders = list.files("../fitted-models/multiverse", full.
 est_results <- meta_dat %>%
   mutate(data = lapply(results_file, readRDS)) %>%
   unnest() %>%
-  select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) %>%
+  select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) 
+
+est_results_sum <- est_results %>%
   group_by(variable) %>%
   summarize_all(mean) %>%
   ungroup() 
 
-est_results %>% 
+est_results_sum %>% 
   filter(variable %in% c("theta_M", "theta_A")) %>%
   select(-ess_bulk,-rhat) %>%
   mutate_if(is.double, exp)
   
-est_results <- est_results %>%
+est_results_sum <- est_results_sum %>%
   mutate_if(is.numeric, function(x) tex_sign(round_k(x)))
 
 variable <- c("phi_N", paste0("alpha[", 1:J, "]"), "omega", "mu_p_in", "sigma_p_in", 
@@ -452,7 +454,7 @@ variable_name <- c("$\\phi$",
                    "$\\gamma^{\\textrm{Community} R_t}$")
 names(variable_name) <- variable
 
-est_results <- est_results %>%
+est_results_sum <- est_results_sum %>%
   filter(!(grepl("beta",variable))) %>%
   mutate(parameter = variable,
          parameter = recode(variable, !!! variable_name),
@@ -461,7 +463,7 @@ est_results <- est_results %>%
   arrange(parameter) %>%
   as.matrix() 
 
-xtable::print.xtable(xtable::xtable(est_results),
+xtable::print.xtable(xtable::xtable(est_results_sum),
                      type = "latex",
                      file = "../results/redcap-supp-estimation-results.tex",
                      sanitize.text.function = identity,
@@ -469,6 +471,66 @@ xtable::print.xtable(xtable::xtable(est_results),
                      include.rownames = F,
                      only.contents = T,
                      hline.after = NULL)
+```
+
+```{r}
+est_results$dataset <- rep(1:100, each = length(unique(est_results$variable)))
+effect_sim_mask <- tibble()
+effect_sim_air <- tibble()
+for (i in unique(est_results$dataset)) {
+  mean_mask <-  est_results %>%
+    filter(variable == "theta_M",
+           dataset <= i) %>%
+    select(mean) %>% unlist %>%
+    mean()
+  lower_mask <-  est_results %>%
+    filter(variable == "theta_M",
+           dataset <= i) %>%
+    select(q5) %>% unlist %>%
+    mean()
+  upper_mask <-  est_results %>%
+    filter(variable == "theta_M",
+           dataset <= i) %>%
+    select(q95) %>% unlist %>%
+    mean()
+  effect_sim_mask <- rbind(effect_sim_mask, data.frame(mean = mean_mask, lower = lower_mask, upper = upper_mask))
+  
+  mean_air <-  est_results %>%
+    filter(variable == "theta_A",
+           dataset <= i) %>%
+    select(mean) %>% unlist %>%
+    mean()
+  lower_air <-  est_results %>%
+    filter(variable == "theta_A",
+           dataset <= i) %>%
+    select(q5) %>% unlist %>%
+    mean()
+  upper_air <-  est_results %>%
+    filter(variable == "theta_A",
+           dataset <= i) %>%
+    select(q95) %>% unlist %>%
+    mean()
+  effect_sim_air <- rbind(effect_sim_air, data.frame(mean = mean_air, lower = lower_air, upper = upper_air))
+}
+
+est_results_sim <- rbind(effect_sim_mask %>% mutate(variable = "Mask mandate"),
+                     effect_sim_air %>% mutate(variable = "Air cleaner")) %>%
+  mutate(variable = factor(variable, levels = c("Mask mandate", "Air cleaner")),
+         datasets = rep(1:100, times = 2))
+
+est_results_sim_pl <- ggplot(data = est_results_sim, mapping = aes(x = datasets)) +
+  geom_line(mapping = aes(y = mean)) +
+  geom_line(mapping = aes(y = lower), linetype = "dashed") +
+  geom_line(mapping = aes(y = upper), linetype = "dashed") +
+  facet_wrap(~ variable) +
+  scale_fill_brewer() +
+  labs(y = "Estimated effect on log odds (average across simulations)", x = "Number of simulations") +
+  theme_bw2() +
+  theme()
+
+est_results_sim_pl
+
+save_plot(est_results_sim_pl, pdf_file = "../results/redcap-supp-results-over-simulation.png", w = 16, h = 10)
 ```
 
 ### New Infections
@@ -640,6 +702,9 @@ av_inf_tot_pl <- avoided_df_sum %>%
 av_inf_tot_pl
 
 save_plot(av_inf_tot_pl, pdf_file = "../results/redcap-results.pdf", w = 16, h = 3.25)
+cairo_ps(filename = "../doc/Revision_1/Figure6b.eps", width = 16 / cm(1), height = 3.25 / cm(1))
+av_inf_tot_pl
+dev.off()
 ```
 
 ```{r}
@@ -657,7 +722,7 @@ avoided_df_sum_by_d <- avoided_df %>%
   mutate(order = 1:n()) %>%
   ungroup()
 
-av_inf_tot_by_d_pl <- ggplot(data = avoided_df_sum_by_d, mapping = aes(y = order)) +
+avoided_df_sum_by_d_pl <- ggplot(data = avoided_df_sum_by_d, mapping = aes(y = order)) +
   geom_ribbon(mapping = aes(xmin = .lower, xmax = .upper, fill = factor(.width, levels = c(.95, .8, .5)))) +
   geom_point(mapping = aes(x = value), size = 2, fill = "white", shape = 21) +
   geom_vline(mapping = aes(xintercept = 0), linetype = "dotted") + 
@@ -669,7 +734,55 @@ av_inf_tot_by_d_pl <- ggplot(data = avoided_df_sum_by_d, mapping = aes(y = order
   theme(axis.title.y = element_blank(), plot.title = element_text(hjust = 0), legend.position = "none",
         axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-av_inf_tot_by_d_pl
+avoided_df_sum_by_d_pl
 
-save_plot(av_inf_tot_by_d_pl, pdf_file = "../results/redcap-supp-results-by-dataset.pdf", w = 16, h = 18)
+save_plot(avoided_df_sum_by_d_pl, pdf_file = "../results/redcap-supp-results-by-dataset.pdf", w = 16, h = 18)
+```
+
+
+## Sensitivity analysis
+
+```{r}
+meta_dat_sa <- data.frame(folders = list.files("../fitted-models/multiverse", full.names = T),
+                       dataset = as.numeric(list.files("../fitted-models/multiverse"))) %>%
+  arrange(dataset) %>%
+  mutate(avoided_file = sapply(folders, list.files, pattern = "avoided-infections_confirmed.rds", full.names = T),
+         results_file = sapply(folders, list.files, pattern = "estimation_results_confirmed.rds", full.names = T))
+
+sa_or <- meta_dat_sa %>%
+  mutate(data = lapply(results_file, readRDS)) %>%
+  unnest(data) %>%
+  select(variable, mean, median, sd, mad, q5, q95, rhat, ess_bulk, ess_tail) %>%
+  filter(variable %in% c("theta_M", "theta_A")) %>%
+  group_by(variable) %>%
+  summarize_all(mean) %>%
+  ungroup() %>%
+  mutate(across(c(mean, median, mad, q5, q95), exp))
+
+main_or <- est_results_sum %>%
+  filter(variable %in% c("theta_M", "theta_A")) %>%
+  mutate(across(c(mean, median, mad, q5, q95), exp))
+
+sa_or <- rbind(sa_or %>% mutate(type = "Excluding suspected cases"), main_or %>% mutate(type = "All cases")) %>%
+  mutate(type = factor(type, levels = c("All cases", "Excluding suspected cases")),
+         variable = ifelse(variable == "theta_M", "Mask mandate", "Air cleaner"),
+         variable = factor(variable, levels = c("Mask mandate", "Air cleaner")))
+
+sa_or %>%
+  dplyr::select(variable, type, everything()) %>%
+  mutate_if(is.numeric, round, 2)
+
+sa_or_pl <- sa_or %>%
+  ggplot(aes(y = type, color = type)) +
+  facet_wrap(~ variable) +
+  geom_errorbar(aes(xmin = q5, xmax = q95),
+                size = 1, width = .1) +
+  labs(x = "Adjusted odds ratio") +
+  geom_point(aes(x = mean), fill = "white") +
+  scale_color_brewer(palette = "Set1") +
+  theme_bw2() +
+  theme(axis.title.y = element_blank(), axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+        legend.title = element_blank(), legend.position = "bottom") 
+
+sa_or_pl
 ```

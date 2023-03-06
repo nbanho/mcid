@@ -1,6 +1,7 @@
 require(ggpattern)
 require(gridExtra)
 require(GGally)
+require(Cairo)
 
 # ggplot theme for Nature style
 text_size = 8

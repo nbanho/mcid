@@ -129,7 +129,7 @@ cases_time_pl <- sim_modeling_df %>%
   geom_step(size = 1.5 / cm(1), direction = "vh") +
   geom_tile(aes(y = 0, height = Inf, fill = intervention), alpha = .2) +
   geom_hline(data = n_class_df, mapping = aes(yintercept = n_class), linetype = "dashed", color = "red") +
-  facet_wrap(~ school_class, ncol = 1, strip.position = "left", scales = "free_y") +
+  facet_wrap(~ school_class, ncol = 1, strip.position = "left") +
   scale_fill_manual(values = c(intervention_col, cbPalette[3:4], "white")) +
   scale_x_date(expand = expansion(add = c(-.5,-.5)), date_breaks = "1 week", date_labels = "%b %d") +
   scale_y_continuous(expand = expansion(mult = c(0, .1)), breaks = seq(0, 25, 5)) +
@@ -144,7 +144,10 @@ cases_time_pl <- sim_modeling_df %>%
   
 
 cases_time_pl
-save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 10)
+save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 11)
+cairo_ps(filename = "../doc/Revision_1/Figure6a.eps", width = 16 / cm(1), height = 11 / cm(1))
+cases_time_pl
+dev.off()
 ```
 
 ### Comparing sim
@@ -476,4 +479,10 @@ descriptives_mol_pl <- arrangeGrob(mol_samples_pl, mol_copies_pl, widths = c(8, 
 ggsave(plot = descriptives_mol_pl, 
        filename = "../results/molecular-descriptives.pdf", 
        width = 16 / cm(1), height = 7 / cm(1))
+cairo_ps(filename = "../doc/Revision_1/Figure4a.eps", width = 8 / cm(1), height = 8 / cm(1))
+mol_samples_pl
+dev.off()
+cairo_ps(filename = "../doc/Revision_1/Figure4b.eps", width = 8 / cm(1), height = 8 / cm(1))
+mol_copies_pl
+dev.off()
 ```

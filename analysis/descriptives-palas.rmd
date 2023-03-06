@@ -124,6 +124,7 @@ boxplots_main <- df_daily %>%
   facet_wrap(~ variable, scales = "free", nrow = 1, labeller = as_labeller(vars_labels, label_parsed)) +
   geom_boxplot2(width = 0.8, width.errorbar = 0.1) +
   scale_color_manual(values = intervention_col) +
+  scale_y_continuous(limits = c(0, NA)) +
   labs(color = "Intervention", title = "a") +
   theme_bw2() +
   theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
@@ -134,6 +135,10 @@ boxplots_main <- df_daily %>%
 
 boxplots_main
 save_plot(boxplots_main, "../results/palas-descriptives.pdf", w = 16, h = 4.25)
+save_plot(boxplots_main, "../results/palas-descriptives.png", w = 16, h = 4.25)
+cairo_ps(filename = "../doc/Revision_1/Figure5a.eps", width = 16 / cm(1), height = 4.25 / cm(1))
+boxplots_main
+dev.off()
 ```
 
 ## Check ventilation duration
@@ -251,4 +256,7 @@ effects_env_main <- draws_filt %>%
 
 effects_env_main
 save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 3)
+cairo_ps(filename = "../doc/Revision_1/Figure5b.eps", width = 16 / cm(1), height = 3 / cm(1))
+effects_env_main
+dev.off()
 ```

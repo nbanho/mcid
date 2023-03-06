@@ -306,6 +306,18 @@ for (i in 1:N) {
                 ungroup()) %>%
     mutate(new_cases = ifelse(is.na(new_cases), 0, new_cases))
   
+  # only confirmed cases
+  modeling_df_confirmed <- full_df %>%
+    left_join(samples_df %>% 
+                select(school, class, school_class, date_symptoms, suspected) %>%
+                rename(date = date_symptoms) %>%
+                mutate(count = 1) %>%
+                dplyr::filter(suspected %in% c("confirmed", "isolated")) %>%
+                group_by(school, class, school_class, date) %>%
+                summarize(new_cases = sum(count)) %>%
+                ungroup()) %>%
+    mutate(new_cases = ifelse(is.na(new_cases), 0, new_cases))
+  
   
   saveRDS(modeling_df, paste0(path_i, "sample-modeling-df.rds"))
   
@@ -380,4 +392,14 @@ for (i in 1:N) {
   sDF$medianRest_mean <- rbind(matrix(rep(r_est_seed, sDF$L), ncol = sDF$L), sDF$medianRest_mean)
   
   saveRDS(sDF, paste0(path_i, "sample-modeling-stan-datalist.rds"))
+  
+  # only confirmed cases
+  sDF_confirmed <- sDF
+  sDF_confirmed$new_cases <- modeling_df_confirmed %>%
+    select(school_class, day, new_cases) %>%
+    dcast(day ~ school_class) %>%
+    select(all_of(col_order)) %>%
+    as.matrix()
+  
+  saveRDS(sDF_confirmed, paste0(path_i, "sample-modeling-stan-datalist-confirmed.rds"))
 }
