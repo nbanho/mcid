@@ -145,6 +145,7 @@ cases_time_pl <- sim_modeling_df %>%
 
 cases_time_pl
 save_plot(cases_time_pl, pdf_file = "../results/redcap-descriptives.pdf", w = 16, h = 11)
+saveRDS(cases_time_pl, "../results/redcap-descriptives.rds")
 cairo_ps(filename = "../doc/Revision_1/Figure6a.eps", width = 16 / cm(1), height = 11 / cm(1))
 cases_time_pl
 dev.off()
@@ -484,5 +485,8 @@ mol_samples_pl
 dev.off()
 cairo_ps(filename = "../doc/Revision_1/Figure4b.eps", width = 8 / cm(1), height = 8 / cm(1))
 mol_copies_pl
+dev.off()
+cairo_ps(filename = "../doc/Revision_1/Figure4.eps", width = 16 / cm(1), height = 8 / cm(1))
+grid.arrange(mol_samples_pl, mol_copies_pl, widths = c(8, 8) / cm(1), heights = 8 / cm(1), nrow = 1) 
 dev.off()
 ```

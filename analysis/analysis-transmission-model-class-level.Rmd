@@ -705,6 +705,10 @@ save_plot(av_inf_tot_pl, pdf_file = "../results/redcap-results.pdf", w = 16, h =
 cairo_ps(filename = "../doc/Revision_1/Figure6b.eps", width = 16 / cm(1), height = 3.25 / cm(1))
 av_inf_tot_pl
 dev.off()
+figure6a <- readRDS("../results/redcap-descriptives.rds")
+cairo_ps(filename = "../doc/Revision_1/Figure6.eps", width = 16 / cm(1), height = 14.25 / cm(1))
+arrangeGrob(figure6a, av_inf_tot_pl, widths = 16 / cm(1), heights = c(11, 3.25) / cm(1), ncol = 1)
+dev.off()
 ```
 
 ```{r}

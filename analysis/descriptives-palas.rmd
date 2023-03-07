@@ -259,4 +259,8 @@ save_plot(effects_env_main, "../results/palas-results.pdf", w = 16, h = 3)
 cairo_ps(filename = "../doc/Revision_1/Figure5b.eps", width = 16 / cm(1), height = 3 / cm(1))
 effects_env_main
 dev.off()
+
+pdf(file = "../doc/Revision_1/Figure5.pdf", width = 16 / cm(1), height = 7.25 / cm(1))
+grid.arrange(boxplots_main, effects_env_main, widths = 16 / cm(1), heights = c(4.25, 3) / cm(1), ncol = 1)
+dev.off()
 ```
