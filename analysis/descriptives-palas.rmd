@@ -21,7 +21,7 @@ library(texreg)
 library(gridExtra)
 library(ggpubr)
 library(ggridges)
-library(gg.layers)
+#library(gg.layers)
 library(xtable)
 library(psych)
 
@@ -62,6 +62,10 @@ names(vars_labels_no_units) <- vars
 ## Descriptives
 
 ```{r}
+df_daily %>%
+  summarize(across(c(co2ppm, rh, tc), .fns = list(mean, sd))) %>%
+  mutate_all(round)
+
 # co2 overall
 df_daily %>%
   summarize(paste(round(mean(co2ppm)), round(sd(co2ppm)), sep = " +/- "))
